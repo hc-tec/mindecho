@@ -1,0 +1,7 @@
+__pycache__/
+**/__pycache__/
+.idea/**
+.vscode/
+# SpecStory explanation file
+.specstory/.what-is-this.md3
+.venv/
