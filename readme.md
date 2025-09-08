@@ -86,6 +86,11 @@ MindEcho 是一个面向“跨平台收藏与 AI 助理”的聚合与加工系�
   - `GET /api/v1/tasks/status`：全局任务统计
   - `GET /api/v1/tasks/{task_id}`：单任务状态
   - `DELETE /api/v1/tasks/clear-completed`：清理成功/失败任务
+  - **管理接口**（`/api/v1/workshops/manage`）：
+    - `GET /manage`：获取所有 workshop 的完整配置列表。
+    - `POST /manage`：创建一个新的 workshop。
+    - `PUT /manage/{workshop_id}`：更新指定 ID 的 workshop。
+    - `DELETE /manage/{workshop_id}`：删除一个 workshop。
 
 ### 7) 结果管理（Results）
 - AI 生成结果的增删改

@@ -15,10 +15,27 @@ from app.db.models import AppSetting, Workshop as WorkshopModel
 # Apply logging configuration at the earliest point
 LogConfig.setup_logging()
 
+
 app = FastAPI(
     title="MindEcho Backend",
     description="Backend service for MindEcho to manage and process favorites from various platforms.",
     version="0.1.0",
+)
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+
+origins = [
+    "http://localhost:3001",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.on_event("startup")

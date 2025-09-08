@@ -1,7 +1,7 @@
 from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, desc, asc
+from sqlalchemy import func, desc, asc, update, delete
 from sqlalchemy.orm import selectinload, joinedload
 
 from .base import CRUDBase
@@ -92,6 +92,39 @@ class CRUDFavoriteItem(CRUDBase[models.FavoriteItem, FavoriteItemCreate, Favorit
         query = self._apply_full_load_options(select(self.model).filter(self.model.id == id))
         result = await db.execute(query)
         return result.scalars().unique().first()
+
+    async def update_status_bulk(self, db: AsyncSession, *, ids: List[int], status: models.FavoriteItemStatus) -> int:
+        """Updates the status for multiple favorite items in a single operation."""
+        if not ids:
+            return 0
+        
+        stmt = (
+            update(self.model)
+            .where(self.model.id.in_(ids))
+            .values(status=status)
+            .execution_options(synchronize_session=False)
+        )
+        result = await db.execute(stmt)
+        await db.commit()
+        return result.rowcount
+
+    async def remove_bulk(self, db: AsyncSession, *, ids: List[int]) -> int:
+        """Deletes multiple favorite items in a single operation."""
+        if not ids:
+            return 0
+        
+        # We might need to handle related objects manually if cascading deletes are not set up
+        # For now, let's assume cascading is handled or not needed for this operation.
+        
+        # First, delete the associations in the item_tags table
+        await db.execute(delete(item_tags).where(item_tags.c.item_id.in_(ids)))
+
+        # Then, delete the items themselves
+        stmt = delete(self.model).where(self.model.id.in_(ids))
+        result = await db.execute(stmt)
+
+        await db.commit()
+        return result.rowcount
 
     async def get_by_platform_item_id(self, db: AsyncSession, *, platform_item_id: str) -> Optional[models.FavoriteItem]:
         query = self._apply_full_load_options(

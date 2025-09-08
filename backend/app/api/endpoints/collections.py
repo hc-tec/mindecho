@@ -13,6 +13,9 @@ from pydantic import BaseModel as PydanticBaseModel
 
 router = APIRouter()
 
+class IdsRequest(PydanticBaseModel):
+    ids: List[int]
+
 class TagsRequest(PydanticBaseModel):
     tags: List[str]
 
@@ -42,6 +45,56 @@ async def read_collections(
     )
     
     return {"total": total, "items": items}
+
+@router.post("/archive", status_code=status.HTTP_200_OK)
+async def archive_collections(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    request: IdsRequest,
+):
+    """
+    Archive a list of collections by their IDs.
+    """
+    if not request.ids:
+        return {"message": "No collections to archive."}
+    
+    updated_count = await crud_favorites.favorite_item.update_status_bulk(
+        db, ids=request.ids, status=models.FavoriteItemStatus.ARCHIVED
+    )
+    
+    if updated_count != len(request.ids):
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Could not archive all items. Found and archived {updated_count} out of {len(request.ids)}."
+        )
+
+    return {"message": f"Successfully archived {updated_count} collections."}
+
+
+@router.post("/delete", status_code=status.HTTP_200_OK)
+async def delete_collections_bulk(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    request: IdsRequest,
+):
+    """
+    Delete a list of collections by their IDs.
+    """
+    if not request.ids:
+        return {"message": "No collections to delete."}
+
+    deleted_count = await crud_favorites.favorite_item.remove_bulk(db, ids=request.ids)
+
+    if deleted_count != len(request.ids):
+        # This might happen if some IDs were not found.
+        # It's not necessarily an error, but the client should be aware.
+        return {
+            "message": f"Deletion partially successful. Deleted {deleted_count} out of {len(request.ids)} collections.",
+            "deleted_count": deleted_count,
+        }
+
+    return {"message": f"Successfully deleted {deleted_count} collections."}
+
 
 @router.get("/inbox", response_model=PaginatedFavoriteItem)
 async def read_inbox_collections(
