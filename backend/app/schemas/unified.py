@@ -12,10 +12,39 @@ class ResultBase(BaseModel):
 class TaskBase(BaseModel):
     workshop_id: Optional[str] = None
     status: TaskStatus = TaskStatus.PENDING
+    prompt: Optional[str] = None
+    llm_model: Optional[str] = None
 
 
 class TaskCreate(TaskBase):
     favorite_item_id: int
+
+
+# Workshop Schemas
+class WorkshopBase(BaseModel):
+    workshop_id: str
+    name: str
+    description: Optional[str] = None
+    default_prompt: str
+    default_model: Optional[str] = None
+    executor_type: str = "llm_chat"
+    executor_config: Optional[dict] = None
+
+class WorkshopCreate(WorkshopBase):
+    pass
+
+class WorkshopUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    default_prompt: Optional[str] = None
+    default_model: Optional[str] = None
+    executor_type: Optional[str] = None
+    executor_config: Optional[dict] = None
+
+class Workshop(WorkshopBase):
+    id: int
+    class Config:
+        orm_mode = True
 
 
 class ResultCreate(ResultBase):

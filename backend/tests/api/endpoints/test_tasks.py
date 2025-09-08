@@ -90,3 +90,7 @@ async def test_regenerate_result_creates_task_and_readable(mock_run_task, client
     # Read the task
     task_resp = await client.get(f"/api/v1/tasks/{task['id']}")
     assert task_resp.status_code == 200
+
+async def test_read_task_status_404_for_nonexistent(client: AsyncClient):
+    resp = await client.get("/api/v1/tasks/999999")
+    assert resp.status_code == 404

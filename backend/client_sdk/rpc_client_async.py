@@ -78,12 +78,50 @@ class EAIRPCClient:
         self._pending_calls: Dict[str, _PendingCall] = {}
         self._events_seen = _LRUIdCache()
         self._cleanup_task: Optional[asyncio.Task] = None
+        self._topic_listeners: Dict[str, List[asyncio.Queue]] = {}
+
+    class _Stream:
+        def __init__(self, queue: asyncio.Queue, topic_id: str, registry: Dict[str, List[asyncio.Queue]]):
+            self._queue = queue
+            self._closed = False
+            self._topic_id = topic_id
+            self._registry = registry
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._closed:
+                raise StopAsyncIteration
+            item = await self._queue.get()
+            return item
+
+        async def next(self, timeout: Optional[float] = None):
+            try:
+                if timeout is None:
+                    return await self._queue.get()
+                return await asyncio.wait_for(self._queue.get(), timeout=timeout)
+            except asyncio.TimeoutError:
+                raise TimeoutError("listen timeout")
+
+        async def close(self):
+            if not self._closed:
+                self._closed = True
+                try:
+                    listeners = self._registry.get(self._topic_id, [])
+                    if self._queue in listeners:
+                        listeners.remove(self._queue)
+                    if not listeners and self._topic_id in self._registry:
+                        self._registry.pop(self._topic_id, None)
+                except Exception:
+                    pass
 
     async def _handle_webhook(self, request: web.Request) -> web.Response:
         """aiohttp handler for incoming webhooks."""
         x_eai_event_id = request.headers.get("X-EAI-EVENT-ID")
         x_eai_signature = request.headers.get("X-EAI-SIGNATURE")
         x_eai_topic_id = request.headers.get("X-EAI-TOPIC-ID")
+        x_eai_plugin_id = request.headers.get("X-EAI-PLUGIN-ID")
         
         raw_body = await request.read()
         
@@ -98,6 +136,22 @@ class EAIRPCClient:
             payload = json.loads(raw_body.decode("utf-8"))
         except Exception:
             return web.Response(status=400, text="Invalid JSON payload")
+
+        # Fan out to any listeners registered for this topic (streaming mode)
+        if x_eai_topic_id and x_eai_topic_id in self._topic_listeners:
+            listeners = list(self._topic_listeners.get(x_eai_topic_id, []))
+            event = {
+                "event_id": x_eai_event_id,
+                "topic_id": x_eai_topic_id,
+                "plugin_id": x_eai_plugin_id,
+                "payload": payload,
+            }
+            for q in listeners:
+                try:
+                    q.put_nowait(event)
+                except Exception:
+                    # Ignore a single listener queue failure to avoid blocking others
+                    pass
 
         if x_eai_topic_id in self._pending_calls:
             pending = self._pending_calls.pop(x_eai_topic_id)
@@ -216,3 +270,85 @@ class EAIRPCClient:
         params = self._merge_params(task_params, service_params, {"bvid": bvid})
         async with self._rpc_call("bilibili_video_details", params, timeout_sec=rpc_timeout_sec) as result:
             return result
+
+    # --- Streaming RPC ---
+    @asynccontextmanager
+    async def run_plugin_stream(
+        self,
+        plugin_id: str,
+        run_mode: Literal["once", "recurring"] = "recurring",
+        interval: float = 300,
+        buffer_size: int = 100,
+        task_params: TaskParams = TaskParams(),
+        service_params: ServiceParams = ServiceParams(),
+        **kwargs: Any,
+    ):
+        """Start a plugin and stream multiple events from its topic.
+
+        Yields an async-iterable stream object. Each item is a dict:
+        {"event_id", "topic_id", "plugin_id", "payload"}
+        """
+        if not self._http_client:
+            raise RuntimeError("Client not started. Please call 'await client.start()' first.")
+
+        params: Dict[str, Any] = self._merge_params(task_params, service_params, kwargs)
+
+        # Prepare topic and subscription
+        topic_id = f"stream-{uuid.uuid4()}"
+        webhook_url = f"http://{self.webhook_host}:{self.webhook_port}/webhook"
+
+        # Create topic
+        resp = await self._http_client.post(
+            "/api/v1/topics",
+            json={"topic_id": topic_id, "name": topic_id, "description": f"Stream for {plugin_id}"},
+        )
+        resp.raise_for_status()
+
+        # Create subscription
+        resp = await self._http_client.post(
+            f"/api/v1/topics/{topic_id}/subscriptions",
+            json={"url": webhook_url, "secret": self.webhook_secret},
+        )
+        resp.raise_for_status()
+
+        # Register a listener queue
+        queue: asyncio.Queue = asyncio.Queue(maxsize=buffer_size)
+        self._topic_listeners.setdefault(topic_id, []).append(queue)
+        stream = self._Stream(queue, topic_id, self._topic_listeners)
+
+        try:
+            # Start the plugin task
+            resp = await self._http_client.post(
+                "/api/v1/tasks",
+                json={
+                    "plugin_id": plugin_id,
+                    "run_mode": run_mode,
+                    "params": params,
+                    "topic_id": topic_id,
+                    "interval": interval,
+                },
+            )
+            resp.raise_for_status()
+
+            yield stream
+        finally:
+            await stream.close()
+
+    @asynccontextmanager
+    async def listen_topic(self, topic_id: str, buffer_size: int = 100):
+        """Listen to an existing topic without creating a new task.
+
+        Assumes the server already has the topic and a subscription for this client's webhook.
+        Yields an async-iterable stream object producing dict events:
+        {"event_id", "topic_id", "plugin_id", "payload"}
+        """
+        if not self._http_client:
+            raise RuntimeError("Client not started. Please call 'await client.start()' first.")
+
+        queue: asyncio.Queue = asyncio.Queue(maxsize=buffer_size)
+        self._topic_listeners.setdefault(topic_id, []).append(queue)
+        stream = self._Stream(queue, topic_id, self._topic_listeners)
+        try:
+            yield stream
+        finally:
+            await stream.close()

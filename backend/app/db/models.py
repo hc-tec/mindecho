@@ -206,6 +206,9 @@ class Task(Base):
     id = Column(Integer, primary_key=True, index=True)
     status = Column(Enum(TaskStatus), nullable=False, default=TaskStatus.PENDING, index=True)
     workshop_id = Column(String)
+    # Optional: allow custom prompt and model per task
+    prompt = Column(Text)
+    llm_model = Column(String)
     
     favorite_item_id = Column(Integer, ForeignKey("favorite_items.id"))
     favorite_item = relationship("FavoriteItem", lazy="selectin")
@@ -214,3 +217,23 @@ class Task(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
     result = relationship("Result", back_populates="task", uselist=False, cascade="all, delete-orphan", lazy="selectin")
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, unique=True, index=True, nullable=False)
+    value = Column(Text, nullable=False)
+
+
+class Workshop(Base):
+    __tablename__ = "workshops"
+    id = Column(Integer, primary_key=True, index=True)
+    workshop_id = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(Text)
+    default_prompt = Column(Text, nullable=False)
+    default_model = Column(String)
+    executor_type = Column(String, nullable=False, default="llm_chat")
+    executor_config = Column(Text)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
