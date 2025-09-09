@@ -9,8 +9,9 @@ import { useCollectionsStore } from '@/stores/collections'
 import { useWorkshopsStore } from '@/stores/workshops'
 import type { Workshop, FavoriteItem } from '@/types/api'
 
-defineProps<{
+const props = defineProps<{
   workshopInfo: Workshop
+  workshop?: Workshop
 }>()
 
 // Store and State Management
@@ -52,8 +53,10 @@ const handleSelectCollection = (collection: FavoriteItem) => {
 
 const handleExecute = async () => {
     if (!selectedCollection.value) return
+    const currentId = (props.workshop?.id) || (props.workshopInfo?.id)
+    if (!currentId) return
     const newTaskId = await workshopsStore.executeWorkshop(
-        'information-alchemy', 
+        currentId,
         selectedCollection.value.id
     )
     if (newTaskId) {

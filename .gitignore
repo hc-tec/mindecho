@@ -4,4 +4,6 @@ __pycache__/
 .vscode/
 # SpecStory explanation file
 .specstory/.what-is-this.md3
-.venv/
+**/.venv/
+**/.idea/
+**/.vscode/

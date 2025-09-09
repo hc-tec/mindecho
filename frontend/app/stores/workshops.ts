@@ -23,6 +23,7 @@ export const useWorkshopsStore = defineStore('workshops', {
     // 这里先手动内置常见映射，未知类型 fallback 到 GenericWorkshop
     componentMap: {
       'information-alchemy': () => import('@/components/workshops/InformationAlchemy.vue'),
+      'point-counterpoint': () => import('@/components/workshops/PointCounterpoint.vue'),
       'generic': () => import('@/components/workshops/GenericWorkshop.vue'),
     } as Record<string, () => Promise<any>>,
   }),
@@ -41,14 +42,20 @@ export const useWorkshopsStore = defineStore('workshops', {
       }
     },
 
-    async executeWorkshop(workshopId: string, itemId: number): Promise<string | null> {
+    async executeWorkshop(
+      workshopId: string,
+      itemId?: number,
+      extraPayload?: Record<string, any>
+    ): Promise<string | null> {
       this.loading = true
       this.error = null
       const { toast } = useToast()
       try {
-        const response = await api.post<{ task_id: string }>(`/workshops/${workshopId}/execute`, {
-          favorite_item_id: itemId,
-        })
+        const body: Record<string, any> = { ...(extraPayload || {}) }
+        if (typeof itemId === 'number' && itemId >= 0) {
+          body.favorite_item_id = itemId
+        }
+        const response = await api.post<{ task_id: string }>(`/workshops/${workshopId}/execute`, body)
         const taskId = response.task_id
         
         // Immediately fetch the initial task state

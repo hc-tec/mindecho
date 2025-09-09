@@ -7,8 +7,9 @@ import { Zap } from 'lucide-vue-next'
 import { useWorkshopsStore } from '@/stores/workshops'
 import type { Workshop } from '@/types/api'
 
-defineProps<{
+const props = defineProps<{
   workshopInfo: Workshop
+  workshop?: Workshop
 }>()
 
 // Store and State Management
@@ -38,9 +39,11 @@ const counterpoints = computed(() => {
 
 const handleExecute = async () => {
     if (!coreArgumentText.value.trim()) return
+    const currentId = (props.workshop?.id) || (props.workshopInfo?.id)
+    if (!currentId) return
     const newTaskId = await workshopsStore.executeWorkshop(
-        'point-counterpoint', 
-        -1, // -1 indicates no specific collection item is needed
+        currentId,
+        undefined,
         { prompt: coreArgumentText.value }
     )
     if (newTaskId) {
