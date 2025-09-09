@@ -25,11 +25,12 @@ const activeTaskId = ref<string | null>(null)
 const saveChanges = async () => {
   saving.value = true
   try {
-    await workshopsStore.updateWorkshop(props.workshop.id, {
+    await workshopsStore.updateWorkshop((props.workshop as any).workshop_id || props.workshop.id, {
       name: name.value,
+      // map to backend fields if supported in your schema; keeping for compatibility
       system_prompt: systemPrompt.value,
       user_prompt_template: userPrompt.value,
-    })
+    } as any)
   } finally {
     saving.value = false
   }
@@ -40,7 +41,7 @@ const execute = async () => {
   running.value = true
   try {
     const taskId = await workshopsStore.executeWorkshop(
-      props.workshop.id,
+      (props.workshop as any).workshop_id || props.workshop.id,
       selectedItemId.value,
       {
         system_prompt: systemPrompt.value,

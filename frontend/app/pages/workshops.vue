@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import WorkshopConfigForm from '@/components/workshops/WorkshopConfigForm.vue'
 import { useRouter } from 'vue-router'
+import { Badge } from '@/components/ui/badge'
 
 const store = useWorkshopsStore()
 const router = useRouter()
@@ -37,12 +38,12 @@ const handleSaved = () => {
 
 const handleDelete = async (wk) => {
   if (confirm(`确定删除工坊 "${wk.name}" ?`)) {
-    await store.deleteWorkshop(wk.id)
+    await store.deleteWorkshop(wk.workshop_id)
   }
 }
 
-const goToWorkshop = (workshopId: string) => {
-  router.push(`/workshops/${workshopId}`)
+const goToWorkshop = (workshopSlug: string) => {
+  router.push(`/workshops/${workshopSlug}`)
 }
 </script>
 
@@ -60,7 +61,7 @@ const goToWorkshop = (workshopId: string) => {
       <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <Card 
           v-for="workshop in workshops" 
-          :key="workshop.id" 
+          :key="workshop.workshop_id || workshop.id" 
           class="flex flex-col hover:shadow-lg transition-shadow relative"
         >
           <!-- kebab menu -->
@@ -80,9 +81,13 @@ const goToWorkshop = (workshopId: string) => {
           <CardHeader>
             <CardTitle>{{ workshop.name }}</CardTitle>
             <CardDescription class="line-clamp-3 h-[60px]">{{ workshop.description }}</CardDescription>
+            <div class="mt-2 flex items-center gap-2">
+              <Badge variant="outline" v-if="workshop.executor_type">{{ workshop.executor_type }}</Badge>
+              <Badge v-if="workshop.default_model">{{ workshop.default_model }}</Badge>
+            </div>
           </CardHeader>
           <CardContent class="flex-1 flex items-end">
-            <Button @click="goToWorkshop(workshop.id)" class="w-full">
+            <Button @click="goToWorkshop(workshop.workshop_id || workshop.id)" class="w-full">
               进入工作坊
             </Button>
           </CardContent>

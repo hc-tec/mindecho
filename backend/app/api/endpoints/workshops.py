@@ -83,6 +83,14 @@ async def list_workshops(db: AsyncSession = Depends(deps.get_db)):
     rows = (await db.execute(select(WorkshopModel))).scalars().all()
     return [_model_to_schema_dict(r) for r in rows]
 
+@router.get("/manage/{workshop_id}", response_model=WorkshopSchema)
+async def get_workshop(workshop_id: str, db: AsyncSession = Depends(deps.get_db)):
+    """Fetch a single workshop by its slug-like workshop_id."""
+    row = (await db.execute(select(WorkshopModel).where(WorkshopModel.workshop_id == workshop_id))).scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Workshop not found")
+    return _model_to_schema_dict(row)
+
 @router.post("/manage", response_model=WorkshopSchema)
 async def create_workshop(payload: WorkshopCreate, db: AsyncSession = Depends(deps.get_db)):
     exists = (await db.execute(select(WorkshopModel).where(WorkshopModel.workshop_id == payload.workshop_id))).scalars().first()

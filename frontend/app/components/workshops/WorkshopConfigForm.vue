@@ -20,32 +20,38 @@ const store = useWorkshopsStore()
 
 const isEdit = ref(false)
 const name = ref('')
-const type = ref('generic')
+const workshopId = ref('') // slug
 const description = ref('')
-const systemPrompt = ref('')
-const userPrompt = ref('')
-const model = ref('gpt-3.5-turbo')
-const temperature = ref(0.7)
-const maxTokens = ref(1024)
+const defaultPrompt = ref('')
+const defaultModel = ref('gpt-4o-mini')
+const executorType = ref('generic')
+const executorConfig = ref<Record<string, any> | null>(null)
 
 watchEffect(() => {
   if (props.workshop) {
     isEdit.value = true
     name.value = props.workshop.name
-    type.value = props.workshop.type
+    // @ts-ignore backend returns workshop_id
+    workshopId.value = (props.workshop as any).workshop_id || ''
     description.value = props.workshop.description
-    systemPrompt.value = props.workshop.system_prompt
-    userPrompt.value = props.workshop.user_prompt_template
-    model.value = props.workshop.model || 'gpt-3.5-turbo'
-    temperature.value = props.workshop.temperature ?? 0.7
-    maxTokens.value = props.workshop.max_tokens ?? 1024
+    // map older fields to new defaults if present
+    // @ts-ignore
+    defaultPrompt.value = (props.workshop as any).default_prompt || props.workshop.system_prompt || ''
+    // @ts-ignore
+    defaultModel.value = (props.workshop as any).default_model || props.workshop.model || 'gpt-4o-mini'
+    // @ts-ignore
+    executorType.value = (props.workshop as any).executor_type || (props.workshop as any).type || 'generic'
+    // @ts-ignore
+    executorConfig.value = (props.workshop as any).executor_config || (props.workshop as any).config || null
   } else {
     isEdit.value = false
     name.value = ''
-    type.value = 'generic'
+    workshopId.value = ''
     description.value = ''
-    systemPrompt.value = ''
-    userPrompt.value = ''
+    defaultPrompt.value = ''
+    defaultModel.value = 'gpt-4o-mini'
+    executorType.value = 'generic'
+    executorConfig.value = null
   }
 })
 
@@ -55,27 +61,34 @@ const handleSave = async () => {
   saving.value = true
   try {
     if (isEdit.value && props.workshop) {
-      await store.updateWorkshop(props.workshop.id, {
+      await store.updateWorkshop(workshopId.value || (props.workshop as any).workshop_id, {
         name: name.value,
-        type: type.value,
         description: description.value,
-        system_prompt: systemPrompt.value,
-        user_prompt_template: userPrompt.value,
-        model: model.value,
-        temperature: temperature.value,
-        max_tokens: maxTokens.value,
-      })
+        // backend unified fields
+        // @ts-ignore
+        default_prompt: defaultPrompt.value,
+        // @ts-ignore
+        default_model: defaultModel.value,
+        // @ts-ignore
+        executor_type: executorType.value,
+        // @ts-ignore
+        executor_config: executorConfig.value,
+      } as any)
     } else {
       await store.createWorkshop({
+        // @ts-ignore
+        workshop_id: workshopId.value,
         name: name.value,
-        type: type.value,
         description: description.value,
-        system_prompt: systemPrompt.value,
-        user_prompt_template: userPrompt.value,
-        model: model.value,
-        temperature: temperature.value,
-        max_tokens: maxTokens.value,
-      })
+        // @ts-ignore
+        default_prompt: defaultPrompt.value,
+        // @ts-ignore
+        default_model: defaultModel.value,
+        // @ts-ignore
+        executor_type: executorType.value,
+        // @ts-ignore
+        executor_config: executorConfig.value,
+      } as any)
     }
     emits('saved')
     emits('update:open', false)
@@ -98,34 +111,28 @@ const handleSave = async () => {
           <Input v-model="name" placeholder="工坊名称" />
         </div>
         <div>
-          <label class="text-sm font-medium">类型</label>
-          <Input v-model="type" placeholder="generic / information-alchemy" />
+          <label class="text-sm font-medium">工坊 ID (slug)</label>
+          <Input v-model="workshopId" placeholder="如 information-alchemy" :disabled="isEdit" />
         </div>
         <div>
           <label class="text-sm font-medium">描述</label>
           <Textarea v-model="description" rows="3" />
         </div>
         <div>
-          <label class="text-sm font-medium">系统提示词</label>
-          <Textarea v-model="systemPrompt" rows="4" />
+          <label class="text-sm font-medium">默认提示词</label>
+          <Textarea v-model="defaultPrompt" rows="4" />
         </div>
         <div>
-          <label class="text-sm font-medium">用户提示模板</label>
-          <Textarea v-model="userPrompt" rows="4" />
+          <label class="text-sm font-medium">默认模型</label>
+          <Input v-model="defaultModel" placeholder="如 gpt-4o-mini" />
         </div>
-        <div class="grid grid-cols-3 gap-4">
-          <div>
-            <label class="text-sm font-medium">模型</label>
-            <Input v-model="model" />
-          </div>
-          <div>
-            <label class="text-sm font-medium">温度</label>
-            <Input type="number" step="0.1" v-model="temperature" />
-          </div>
-          <div>
-            <label class="text-sm font-medium">Max Tokens</label>
-            <Input type="number" v-model="maxTokens" />
-          </div>
+        <div>
+          <label class="text-sm font-medium">执行器类型</label>
+          <Input v-model="executorType" placeholder="如 llm_chat / generic" />
+        </div>
+        <div>
+          <label class="text-sm font-medium">执行器配置 (JSON)</label>
+          <Textarea v-model="(executorConfig as any)" rows="4" placeholder='{"ui": {"icon": "Sparkles"}}' />
         </div>
       </div>
 
@@ -136,3 +143,4 @@ const handleSave = async () => {
     </DialogContent>
   </Dialog>
 </template>
+

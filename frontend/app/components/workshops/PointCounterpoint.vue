@@ -39,7 +39,7 @@ const counterpoints = computed(() => {
 
 const handleExecute = async () => {
     if (!coreArgumentText.value.trim()) return
-    const currentId = (props.workshop?.id) || (props.workshopInfo?.id)
+    const currentId = (props.workshop?.workshop_id) || (props.workshop?.id) || (props.workshopInfo?.workshop_id) || (props.workshopInfo?.id)
     if (!currentId) return
     const newTaskId = await workshopsStore.executeWorkshop(
         currentId,

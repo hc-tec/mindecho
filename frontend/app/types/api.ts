@@ -73,21 +73,23 @@ export interface Result {
 }
 
 export interface Workshop {
-  id: string
-  /**
-   * 用于前端组件映射的类型标识，例如 "information-alchemy"、"generic" 等。
-   */
-  type: string
+  // Backend unified schema
+  id: number
+  workshop_id: string
   name: string
-  description: string
-  system_prompt: string
-  user_prompt_template: string
+  description?: string
+  default_prompt: string
+  default_model?: string
+  executor_type: string
+  executor_config?: Record<string, any> | null
+
+  // Legacy compatible fields (optional)
+  type?: string
+  system_prompt?: string
+  user_prompt_template?: string
   model?: string
   temperature?: number
   max_tokens?: number
-  /**
-   * 预留的可扩展配置字段，后端 JSONB / dict 直接透传
-   */
   config?: Record<string, any>
 }
 

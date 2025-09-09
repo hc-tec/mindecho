@@ -43,8 +43,8 @@ export const useWorkshopsStore = defineStore('workshops', {
     },
 
     async executeWorkshop(
-      workshopId: string,
-      itemId?: number,
+      workshopIdOrSlug: string,
+      collectionId?: number,
       extraPayload?: Record<string, any>
     ): Promise<string | null> {
       this.loading = true
@@ -52,17 +52,17 @@ export const useWorkshopsStore = defineStore('workshops', {
       const { toast } = useToast()
       try {
         const body: Record<string, any> = { ...(extraPayload || {}) }
-        if (typeof itemId === 'number' && itemId >= 0) {
-          body.favorite_item_id = itemId
+        if (typeof collectionId === 'number' && collectionId >= 0) {
+          body.collection_id = collectionId
         }
-        const response = await api.post<{ task_id: string }>(`/workshops/${workshopId}/execute`, body)
+        const response = await api.post<{ task_id: string }>(`/workshops/${workshopIdOrSlug}/execute`, body)
         const taskId = response.task_id
         
         // Immediately fetch the initial task state
         await this.fetchTask(taskId)
 
         toast({
-          title: `Workshop "${workshopId}" Started`,
+          title: `Workshop "${workshopIdOrSlug}" Started`,
           description: `Task has been successfully dispatched.`,
         })
 
@@ -127,7 +127,7 @@ export const useWorkshopsStore = defineStore('workshops', {
     // ---------- CRUD ----------
     async createWorkshop(payload: Partial<Workshop>) {
       try {
-        const newWorkshop = await api.post<Workshop>('/workshops', payload)
+        const newWorkshop = await api.post<Workshop>('/workshops/manage', payload)
         this.workshops.push(newWorkshop)
         return newWorkshop
       } catch (err) {
@@ -136,10 +136,10 @@ export const useWorkshopsStore = defineStore('workshops', {
       }
     },
 
-    async updateWorkshop(id: string, payload: Partial<Workshop>) {
+    async updateWorkshop(workshopId: string, payload: Partial<Workshop>) {
       try {
-        const updated = await api.put<Workshop>(`/workshops/${id}`, payload)
-        const idx = this.workshops.findIndex(w => w.id === id)
+        const updated = await api.put<Workshop>(`/workshops/manage/${workshopId}`, payload)
+        const idx = this.workshops.findIndex(w => (w as any).workshop_id === workshopId || (w as any).id === workshopId)
         if (idx >= 0) this.workshops[idx] = updated
         return updated
       } catch (err) {
@@ -148,10 +148,10 @@ export const useWorkshopsStore = defineStore('workshops', {
       }
     },
 
-    async deleteWorkshop(id: string) {
+    async deleteWorkshop(workshopId: string) {
       try {
-        await api.delete(`/workshops/${id}`)
-        this.workshops = this.workshops.filter(w => w.id !== id)
+        await api.delete(`/workshops/manage/${workshopId}`)
+        this.workshops = this.workshops.filter(w => (w as any).workshop_id !== workshopId && (w as any).id !== workshopId)
       } catch (err) {
         this.error = 'Failed to delete workshop'
         throw err
@@ -161,6 +161,11 @@ export const useWorkshopsStore = defineStore('workshops', {
     // ---------- Helpers ----------
     getWorkshopById(id: string) {
       return this.workshops.find(w => w.id === id)
+    },
+
+    getWorkshopBySlug(slug: string) {
+      // align with backend which returns `workshop_id` as slug
+      return this.workshops.find((w: any) => w.workshop_id === slug)
     },
 
     getComponentLoader(type: string) {
