@@ -74,6 +74,10 @@ export interface Result {
 
 export interface Workshop {
   id: string
+  /**
+   * 用于前端组件映射的类型标识，例如 "information-alchemy"、"generic" 等。
+   */
+  type: string
   name: string
   description: string
   system_prompt: string
@@ -81,6 +85,10 @@ export interface Workshop {
   model?: string
   temperature?: number
   max_tokens?: number
+  /**
+   * 预留的可扩展配置字段，后端 JSONB / dict 直接透传
+   */
+  config?: Record<string, any>
 }
 
 export interface Task {

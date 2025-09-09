@@ -9,6 +9,8 @@ interface WorkshopsState {
   tasks: Record<string, Task>
   loading: boolean
   error: string | null
+  /** 动态组件加载器映射 */
+  componentMap: Record<string, () => Promise<any>>
 }
 
 export const useWorkshopsStore = defineStore('workshops', {
@@ -17,6 +19,12 @@ export const useWorkshopsStore = defineStore('workshops', {
     tasks: {},
     loading: false,
     error: null,
+    // 动态组件映射 (type -> component name)，在 setup 中通过 import.meta.glob 可进一步自动注册
+    // 这里先手动内置常见映射，未知类型 fallback 到 GenericWorkshop
+    componentMap: {
+      'information-alchemy': () => import('@/components/workshops/InformationAlchemy.vue'),
+      'generic': () => import('@/components/workshops/GenericWorkshop.vue'),
+    } as Record<string, () => Promise<any>>,
   }),
 
   actions: {
@@ -107,6 +115,49 @@ export const useWorkshopsStore = defineStore('workshops', {
       })
       
       return unsubscribe
+    },
+
+    // ---------- CRUD ----------
+    async createWorkshop(payload: Partial<Workshop>) {
+      try {
+        const newWorkshop = await api.post<Workshop>('/workshops', payload)
+        this.workshops.push(newWorkshop)
+        return newWorkshop
+      } catch (err) {
+        this.error = 'Failed to create workshop'
+        throw err
+      }
+    },
+
+    async updateWorkshop(id: string, payload: Partial<Workshop>) {
+      try {
+        const updated = await api.put<Workshop>(`/workshops/${id}`, payload)
+        const idx = this.workshops.findIndex(w => w.id === id)
+        if (idx >= 0) this.workshops[idx] = updated
+        return updated
+      } catch (err) {
+        this.error = 'Failed to update workshop'
+        throw err
+      }
+    },
+
+    async deleteWorkshop(id: string) {
+      try {
+        await api.delete(`/workshops/${id}`)
+        this.workshops = this.workshops.filter(w => w.id !== id)
+      } catch (err) {
+        this.error = 'Failed to delete workshop'
+        throw err
+      }
+    },
+
+    // ---------- Helpers ----------
+    getWorkshopById(id: string) {
+      return this.workshops.find(w => w.id === id)
+    },
+
+    getComponentLoader(type: string) {
+      return this.componentMap[type] ?? this.componentMap['generic']
     },
   },
 })

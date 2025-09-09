@@ -20,7 +20,13 @@ import {
 } from '@/components/ui/collapsible'
 
 const route = useRoute()
-const isActive = (path: string) => route.path.startsWith(path)
+// Ensure only the root path (`/`) matches exactly, while other paths use `startsWith`.
+const isActive = (path: string) => {
+  if (path === '/') {
+    return route.path === '/'
+  }
+  return route.path.startsWith(path)
+}
 </script>
 
 <template>
@@ -123,10 +129,13 @@ const isActive = (path: string) => route.path.startsWith(path)
       </div>
 
       <!-- Settings Button -->
-      <Button variant="ghost" class="w-full justify-start">
+      <NuxtLink
+        to="/settings"
+        class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium hover:bg-accent hover:text-accent-foreground"
+      >
         <Settings class="mr-2 h-4 w-4" />
-        <NuxtLink to="/settings">设置</NuxtLink>
-      </Button>
+        设置
+      </NuxtLink>
     </div>
   </aside>
 </template>
