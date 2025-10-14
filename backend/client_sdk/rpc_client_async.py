@@ -271,6 +271,30 @@ class EAIRPCClient:
         async with self._rpc_call("bilibili_video_details", params, timeout_sec=rpc_timeout_sec) as result:
             return result
 
+    async def chat_with_yuanbao(self, ask_question: str, conversation_id: str, rpc_timeout_sec=60, task_params: TaskParams=TaskParams(), service_params: ServiceParams=ServiceParams()):
+        ask_question = ask_question.replace('\n', '').replace('\r', '')
+        params = self._merge_params(task_params, service_params, {"ask_question": ask_question})
+        async with self._rpc_call("yuanbao_chat", params, timeout_sec=rpc_timeout_sec) as result:
+            return result
+
+    # --- Utility / management RPCs ---
+    async def delete_task(self, task_id: str) -> Dict[str, Any]:
+        """Delete a running or finished task on the server.
+
+        Mirrors backend endpoint: DELETE /api/v1/tasks/{task_id}
+        Returns the backend JSON response (usually {"ok": true} or similar).
+        """
+        if not self._http_client:
+            raise RuntimeError("Client not started. Please call 'await client.start()' first.")
+
+        resp = await self._http_client.delete(f"/api/v1/tasks/{task_id}")
+        resp.raise_for_status()
+        # Some servers may return empty body
+        try:
+            return resp.json()
+        except ValueError:
+            return {"ok": True}
+
     # --- Streaming RPC ---
     @asynccontextmanager
     async def run_plugin_stream(
@@ -329,6 +353,14 @@ class EAIRPCClient:
                 },
             )
             resp.raise_for_status()
+            try:
+                task_payload = resp.json()
+                remote_task_id = task_payload.get("task_id") or task_payload.get("id")
+            except Exception:
+                remote_task_id = None
+
+            # Expose remote task id on stream for callers who want to manage lifecycle
+            setattr(stream, "remote_task_id", remote_task_id)
 
             yield stream
         finally:

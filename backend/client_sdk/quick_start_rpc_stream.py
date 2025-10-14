@@ -10,7 +10,7 @@ import asyncio
 from typing import Any, Dict
 
 from client_sdk.params import TaskParams
-from client_sdk.rpc_client import EAIRPCClient
+from client_sdk.rpc_client_async import EAIRPCClient
 
 
 async def main():
@@ -39,7 +39,7 @@ async def main():
         # - 任务执行过程中产生的多次发布事件都会被推送到该 topic
         # - 通过异步上下文管理器自动完成资源清理
         print("\n▶️ 启动插件并进入持续监听模式...")
-        async with client.chat_with_yuanbao_stream(ask_question, task_params=task_params, interval=30) as stream:
+        async with client.run_plugin_stream(plugin_id="yuanbao_chat",ask_question=ask_question, task_params=task_params, interval=30) as stream:
             # 使用 stream.next(timeout=60) 设置60秒超时的拉取循环
             while True:
                 try:

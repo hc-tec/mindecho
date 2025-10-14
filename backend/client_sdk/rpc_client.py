@@ -69,7 +69,7 @@ class EAIRPCClient:
         base_url: str, 
         api_key: str,
         webhook_host: str = "0.0.0.0",
-        webhook_port: int = 9001,
+        webhook_port: int = 0,
         webhook_secret: Optional[str] = None,
     ):
         self._server_task = None
