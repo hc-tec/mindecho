@@ -189,8 +189,17 @@ async def _create_tasks_for_items(db, items: List[FavoriteItem], event: Dict[str
 from client_sdk.params import TaskParams, ServiceParams
 
 
-async def _build_known_briefs(db: AsyncSessionLocal, collection_id: str) -> List[Dict[str, Any]]:
-    """DRY Helper: Build the list of known brief items for delta detection."""
+async def _build_known_briefs(db: AsyncSessionLocal, collection_id: str, platform: str) -> List[Dict[str, Any]]:
+    """DRY Helper: Build the list of known brief items for delta detection.
+
+    Args:
+        db: Database session
+        collection_id: Platform collection ID
+        platform: Platform name (bilibili, xiaohongshu, etc.)
+
+    Returns:
+        List of dicts with platform-specific fingerprint fields
+    """
     known_briefs = []
     try:
         existing_items = (
@@ -198,15 +207,29 @@ async def _build_known_briefs(db: AsyncSessionLocal, collection_id: str) -> List
             .scalars()
             .all()
         )
+
         for it in existing_items:
-            known_briefs.append(
-                {
+            if platform == "bilibili":
+                # Bilibili format: uses id (platform_favorite_id) and bvid (platform_item_id)
+                known_briefs.append({
                     "id": it.platform_favorite_id,
                     "bvid": it.platform_item_id,
-                }
-            )
+                })
+            elif platform == "xiaohongshu":
+                # Xiaohongshu format: uses id and note_id (platform_item_id)
+                known_briefs.append({
+                    "id": it.platform_favorite_id or it.platform_item_id,  # Fallback to platform_item_id if no favorite_id
+                    "note_id": it.platform_item_id,
+                })
+            else:
+                # Generic format: include all available fields
+                known_briefs.append({
+                    "id": it.platform_favorite_id or it.platform_item_id,
+                    "platform_item_id": it.platform_item_id,
+                })
+
     except Exception:
-        logger.exception("Failed building known_briefs for collection_id=%s", collection_id)
+        logger.exception("Failed building known_briefs for collection_id=%s platform=%s", collection_id, platform)
     return known_briefs
 
 
@@ -254,7 +277,9 @@ async def _update_stream_for_collection(db: AsyncSessionLocal, collection: Colle
     # Get platform-specific configuration
     plugin_id, stream_group, interval, cookie_ids, fingerprint_fields = _get_plugin_config_for_platform(collection.platform)
 
-    known_briefs = await _build_known_briefs(db, collection.platform_collection_id)
+    # Build known briefs with platform-specific format
+    known_briefs = await _build_known_briefs(db, collection.platform_collection_id, collection.platform)
+    logger.info(f"Built {len(known_briefs)} known briefs for collection {collection.platform_collection_id} ({collection.platform})")
 
     stream_manager.start_stream(
         stream_id=stream_id,
