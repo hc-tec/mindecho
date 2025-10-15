@@ -401,8 +401,8 @@ class DefaultXiaohongshuTaskCreator:
                     db, workshop_id=workshop_id, collection_id=db_item.id
                 )
 
-                # Run task in background
-                asyncio.create_task(workshop_service.run_workshop_task(db, task_id=task.id))
+                # Run task in background (creates its own DB session)
+                asyncio.create_task(workshop_service.run_workshop_task(task_id=task.id))
 
                 logger.info(
                     f"Created workshop task {task.id} for note {db_item.platform_item_id} "

@@ -180,7 +180,8 @@ async def _create_tasks_for_items(db, items: List[FavoriteItem], event: Dict[str
 
             workshop_id = await _resolve_workshop_id_for_item(db, db_item, event)
             task = await workshop_service.start_workshop_task(db, workshop_id=workshop_id, collection_id=db_item.id)
-            asyncio.create_task(workshop_service.run_workshop_task(db, task_id=task.id))
+            # Run task in background (creates its own DB session)
+            asyncio.create_task(workshop_service.run_workshop_task(task_id=task.id))
         except Exception:
             logger.exception("Failed to create task for favorite_item_id=%s", getattr(db_item, "id", None))
 

@@ -455,9 +455,9 @@ class WorkshopTaskCreator:
             collection_id=item.id
         )
         
-        # Run task asynchronously
+        # Run task asynchronously (creates its own DB session)
         asyncio.create_task(
-            self.workshop_service.run_workshop_task(db, task_id=task.id)
+            self.workshop_service.run_workshop_task(task_id=task.id)
         )
         
         logger.info(f"Created task {task.id} for item {item.id}")
