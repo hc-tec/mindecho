@@ -207,7 +207,7 @@ const handleSave = async () => {
             >
               <Checkbox
                 :checked="isCollectionSelected(platform.value, collection.id)"
-                @update:checked="() => toggleCollection(platform.value, collection.id)"
+                @click.stop
               />
               <div class="flex-1 min-w-0">
                 <Label class="cursor-pointer font-medium">{{ collection.title }}</Label>
