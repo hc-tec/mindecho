@@ -48,15 +48,22 @@ const isListening = (wk: any) => Boolean(wk?.executor_config?.listening_enabled)
 
 // dialog state
 const dialogOpen = ref(false)
-const editingWorkshop = ref(null as any)
+// 🔧 关键修复：使用 workshop ID 而不是直接引用对象，避免引用失效
+const editingWorkshopId = ref<string | null>(null)
+
+// 🔧 使用 computed 动态获取最新数据，当 store 更新时自动同步
+const editingWorkshop = computed(() => {
+  if (!editingWorkshopId.value) return null
+  return store.getWorkshopBySlug(editingWorkshopId.value)
+})
 
 const openCreate = () => {
-  editingWorkshop.value = null
+  editingWorkshopId.value = null
   dialogOpen.value = true
 }
 
 const openEdit = (wk: Workshop) => {
-  editingWorkshop.value = wk
+  editingWorkshopId.value = (wk as any).workshop_id
   dialogOpen.value = true
 }
 

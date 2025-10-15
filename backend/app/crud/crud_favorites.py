@@ -157,11 +157,14 @@ class CRUDFavoriteItem(CRUDBase[models.FavoriteItem, FavoriteItemCreate, Favorit
             *,
             item_in: FavoriteItemCreate,
             author_id: int,
-            collection_id: Optional[int] = None,
+            collection_id: Optional[str] = None,
     ) -> models.FavoriteItem:
         """Create a FavoriteItem (brief) while assigning author_id and optional collection_id.
 
         This is intended for ingestion of plugin stream events where we only have brief info.
+
+        Args:
+            collection_id: Platform collection ID (foreign key to collections.platform_collection_id)
         """
         db_item = models.FavoriteItem(
             **item_in.dict(),

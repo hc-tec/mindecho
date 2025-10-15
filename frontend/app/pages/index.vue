@@ -8,6 +8,7 @@ import DashboardWorkshopsMatrix from '@/components/dashboard/WorkshopsMatrix.vue
 import DashboardRecentOutputs from '@/components/dashboard/RecentOutputs.vue'
 import DashboardQuickActions from '@/components/dashboard/QuickActions.vue'
 import DashboardTrendSpotting from '@/components/dashboard/TrendSpotting.vue'
+import DashboardSystemMonitoring from '@/components/dashboard/SystemMonitoring.vue'
 import { useCollectionsStore } from '@/stores/collections'
 
 const dashboardStore = useDashboardStore()
@@ -86,6 +87,7 @@ onUnmounted(() => {
         <DashboardFactoryOverview />
       </div>
       <DashboardPendingQueue />
+      <DashboardSystemMonitoring />
       <DashboardWorkshopsMatrix />
       <div class="lg:col-span-2">
         <DashboardRecentOutputs />

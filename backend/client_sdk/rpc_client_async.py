@@ -338,8 +338,63 @@ class EAIRPCClient:
                                 task_params: TaskParams = TaskParams(),
                                 service_params: ServiceParams = ServiceParams()):
         ask_question = ask_question.replace('\n', '').replace('\r', '')
-        params = self._merge_params(task_params, service_params, {"ask_question": ask_question})
+        params = self._merge_params(
+            task_params,
+            service_params,
+            {"ask_question": ask_question, "conversation_id": conversation_id})
         async with self._rpc_call("yuanbao_chat", params, timeout_sec=rpc_timeout_sec) as result:
+            return result
+
+    async def render_image(
+        self,
+        content: str,
+        title: Optional[str] = None,
+        style: str = "minimal_card",
+        size: Optional[tuple[int, int]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        rpc_timeout_sec=120,
+        task_params: TaskParams = TaskParams(),
+        service_params: ServiceParams = ServiceParams()
+    ) -> Dict[str, Any]:
+        """Render text content as an image using EAI service.
+
+        Args:
+            content: Text content to render
+            title: Optional title for the image
+            style: Rendering style template (default: "minimal_card")
+            size: Optional (width, height) tuple in pixels
+            metadata: Additional metadata for rendering (tags, stats, etc.)
+            rpc_timeout_sec: RPC timeout in seconds (default: 120)
+            task_params: Task parameters
+            service_params: Service parameters
+
+        Returns:
+            Dict containing:
+                - image_data: Base64-encoded image data (str)
+                - image_url: Optional URL if uploaded
+                - format: Image format (e.g., "png", "jpg")
+                - width: Image width in pixels
+                - height: Image height in pixels
+
+        Raises:
+            TimeoutError: If rendering takes longer than rpc_timeout_sec
+            Exception: If rendering fails
+        """
+        render_params = {
+            "content": content,
+            "style": style,
+        }
+
+        if title:
+            render_params["title"] = title
+        if size:
+            render_params["width"] = size[0]
+            render_params["height"] = size[1]
+        if metadata:
+            render_params["metadata"] = metadata
+
+        params = self._merge_params(task_params, service_params, render_params)
+        async with self._rpc_call("image_renderer", params, timeout_sec=rpc_timeout_sec) as result:
             return result
 
     # --- Utility / management RPCs ---

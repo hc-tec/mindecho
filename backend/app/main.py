@@ -80,6 +80,10 @@ async def startup_event():
                 runtime_config.set_category_map(json.loads(mapping_row.value))
             except Exception:
                 pass
+    # Initialize notification system
+    from app.services.notifications.notification_service import notification_service
+    notification_service.initialize()
+
     # Register stream handler and start enabled listeners
     stream_manager.register_event_handler(handle_stream_event)
     await start_enabled_workshop_streams()

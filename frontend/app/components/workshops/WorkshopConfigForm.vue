@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watchEffect, computed } from 'vue'
+import { ref, watchEffect, computed, watch, nextTick, triggerRef } from 'vue'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -7,10 +7,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select'
 import { Settings2 } from 'lucide-vue-next'
 import { useWorkshopsStore } from '@/stores/workshops'
+import { useCollectionsStore } from '@/stores/collections'
 import WorkshopPlatformBindings from './WorkshopPlatformBindings.vue'
+import AIModelSelector from '@/components/common/AIModelSelector.vue'
 import type { Workshop } from '@/types/api'
+import { api } from '@/lib/api'
 
 const props = defineProps<{
   open: boolean
@@ -22,13 +26,14 @@ const emits = defineEmits<{
 }>()
 
 const store = useWorkshopsStore()
+const collectionsStore = useCollectionsStore()
 
 const isEdit = ref(false)
 const name = ref('')
 const workshopId = ref('') // slug
 const description = ref('')
 const defaultPrompt = ref('')
-const defaultModel = ref('yuanbao')
+const defaultModel = ref('yuanbao-chat')  // 更新默认值为新的模型ID格式
 const executorType = ref('llm_chat')
 const executorConfig = ref<Record<string, any> | null>(null)
 const executorConfigText = ref('')
@@ -36,19 +41,40 @@ const executorConfigText = ref('')
 // Listening configuration
 const listeningEnabled = ref(false)
 const platformBindingsDialogOpen = ref(false)
+const platformBindingsSummary = ref('未配置')  // 改用 ref 而不是 computed
 
-// Computed: platform bindings summary
-const platformBindingsSummary = computed(() => {
+// Helper: get collection by ID
+const getCollectionById = (collectionId: number) => {
+  return collectionsStore.platformCollections.find(c => c.id === collectionId)
+}
+
+// Helper: 手动计算 platform bindings summary
+const updatePlatformBindingsSummary = () => {
   const bindings = executorConfig.value?.platform_bindings || []
-  if (!bindings || bindings.length === 0) return '未配置'
+  if (!bindings || bindings.length === 0) {
+    platformBindingsSummary.value = '未配置'
+    return
+  }
 
-  const summary = bindings.map((b: any) => {
-    const platformName = b.platform === 'bilibili' ? 'B站' : b.platform === 'xiaohongshu' ? '小红书' : b.platform
-    return `${platformName}(${b.collection_ids.length})`
-  }).join(', ')
+  const parts: string[] = []
 
-  return summary
-})
+  bindings.forEach((b: any) => {
+    const platformIcon = b.platform === 'bilibili' ? '📺' : b.platform === 'xiaohongshu' ? '📕' : '📁'
+    const collectionNames = b.collection_ids
+      .map((id: number) => getCollectionById(id)?.title)
+      .filter((title: string | undefined) => title !== undefined)
+
+    if (collectionNames.length > 0) {
+      parts.push(`${platformIcon} ${collectionNames.join('、')}`)
+    } else {
+      const platformName = b.platform === 'bilibili' ? 'B站' : b.platform === 'xiaohongshu' ? '小红书' : b.platform
+      parts.push(`${platformIcon} ${platformName}(${b.collection_ids.length}个)`)
+    }
+  })
+
+  platformBindingsSummary.value = parts.join(' | ')
+  console.log('🔄 platformBindingsSummary 已更新为:', platformBindingsSummary.value)
+}
 
 watchEffect(() => {
   if (props.workshop) {
@@ -70,6 +96,9 @@ watchEffect(() => {
 
     // Load listening config
     listeningEnabled.value = executorConfig.value?.listening_enabled || false
+
+    // 手动更新 summary
+    updatePlatformBindingsSummary()
   } else {
     isEdit.value = false
     name.value = ''
@@ -81,6 +110,7 @@ watchEffect(() => {
     executorConfig.value = null
     executorConfigText.value = ''
     listeningEnabled.value = false
+    platformBindingsSummary.value = '未配置'
   }
 })
 
@@ -89,19 +119,26 @@ const saving = ref(false)
 const handleSave = async () => {
   saving.value = true
   try {
-    // Parse JSON text if provided
-    try {
-      executorConfig.value = executorConfigText.value.trim() ? JSON.parse(executorConfigText.value) : null
-    } catch (e) {
-      alert('执行器配置不是有效的 JSON')
-      return
+    // Parse JSON text if user manually edited it
+    if (executorConfigText.value.trim()) {
+      try {
+        executorConfig.value = JSON.parse(executorConfigText.value)
+      } catch (e) {
+        alert('执行器配置不是有效的 JSON')
+        saving.value = false
+        return
+      }
     }
 
-    // Merge listening_enabled into executor_config
+    // Ensure executor_config exists
     if (!executorConfig.value) {
       executorConfig.value = {}
     }
+
+    // Update listening_enabled
     executorConfig.value.listening_enabled = listeningEnabled.value
+
+    console.log('💾 Saving executor_config:', executorConfig.value)
 
     if (isEdit.value && props.workshop) {
       await store.updateWorkshop(workshopId.value || (props.workshop as any).workshop_id, {
@@ -145,15 +182,71 @@ const openPlatformBindings = () => {
 }
 
 const onBindingsSaved = async () => {
-  // Refresh workshop to get updated bindings
-  if (workshopId.value) {
+  if (!workshopId.value) {
+    console.warn('❌ No workshop ID')
+    return
+  }
+
+  console.log('🔄 收藏夹配置保存完成，刷新数据...')
+  console.log('   Workshop ID:', workshopId.value)
+
+  try {
+    // 1. 先刷新 collections 数据
+    console.log('   刷新 collections...')
+    await collectionsStore.fetchPlatformCollections()
+    console.log('   ✓ Collections 已刷新，总数:', collectionsStore.platformCollections.length)
+
+    // 2. 重新获取最新数据
     const updated = await store.fetchWorkshopBySlug(workshopId.value)
-    if (updated) {
-      executorConfig.value = (updated as any).executor_config || null
-      executorConfigText.value = executorConfig.value ? JSON.stringify(executorConfig.value, null, 2) : ''
+
+    if (!updated) {
+      console.error('❌ 获取更新后的工坊数据失败')
+      return
     }
+
+    console.log('✓ 获取到更新后的工坊:', updated)
+
+    const newExecutorConfig = (updated as any).executor_config
+    console.log('✓ 新的 executor_config:', newExecutorConfig)
+    console.log('✓ 包含 platform_bindings:', newExecutorConfig?.platform_bindings)
+
+    // 关键：强制替换整个对象，确保触发��应式更新
+    executorConfig.value = { ...newExecutorConfig }
+    executorConfigText.value = JSON.stringify(executorConfig.value, null, 2)
+    listeningEnabled.value = executorConfig.value?.listening_enabled || false
+
+    // 强制触发响应式
+    triggerRef(executorConfig)
+    await nextTick()
+
+    console.log('✅ executorConfig.value 已更新!', executorConfig)
+    console.log('   platform_bindings:', executorConfig.value?.platform_bindings)
+
+    // 3. 手动更新 platformBindingsSummary
+    updatePlatformBindingsSummary()
+    console.log('   ✓ updatePlatformBindingsSummary 已调用')
+
+    // 4. 测试：读取更新后的值
+    const testSummary = platformBindingsSummary.value
+    console.log('   📊 platformBindingsSummary 最终值:', testSummary)
+
+    if (testSummary === '未配置') {
+      console.warn('⚠️  platformBindingsSummary 仍然显示"未配置"')
+      console.log('   检查 collections:', collectionsStore.platformCollections.slice(0, 3))
+    } else {
+      console.log('✅ platformBindingsSummary 已正确更新!')
+    }
+  } catch (error) {
+    console.error('❌ onBindingsSaved 出错:', error)
   }
 }
+
+// Load collections when dialog opens
+watch(() => props.open, (newVal) => {
+  if (newVal) {
+    collectionsStore.fetchPlatformCollections()
+  }
+})
 </script>
 
 <template>
@@ -178,12 +271,20 @@ const onBindingsSaved = async () => {
         </div>
         <div>
           <label class="text-sm font-medium">默认提示词</label>
-          <Textarea v-model="defaultPrompt" rows="4" />
+          <Textarea v-model="defaultPrompt" rows="4" placeholder="系统提示词，支持 {source} 变量..." />
         </div>
-        <div>
-          <label class="text-sm font-medium">默认模型</label>
-          <Input v-model="defaultModel" placeholder="如 gpt-4o-mini" />
+
+        <!-- AI模型选择器 -->
+        <div class="space-y-2">
+          <div class="flex flex-col gap-1">
+            <label class="text-sm font-medium">AI 模型</label>
+            <span class="text-xs text-muted-foreground">
+              选择此工坊使用的AI模型进行内容分析
+            </span>
+          </div>
+          <AIModelSelector v-model="defaultModel" />
         </div>
+
         <div>
           <label class="text-sm font-medium">执行器类型</label>
           <Input v-model="executorType" placeholder="如 llm_chat / generic" />

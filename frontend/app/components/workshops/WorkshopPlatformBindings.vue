@@ -59,23 +59,38 @@ const isCollectionSelected = (platform: string, collectionId: number) => {
 
 // Toggle collection selection
 const toggleCollection = (platform: string, collectionId: number) => {
-  let binding = platformBindings.value.find(b => b.platform === platform)
+  const binding = platformBindings.value.find(b => b.platform === platform)
 
   if (!binding) {
     // Create new binding for this platform
-    binding = { platform, collection_ids: [] }
-    platformBindings.value.push(binding)
-  }
-
-  const index = binding.collection_ids.indexOf(collectionId)
-  if (index > -1) {
-    binding.collection_ids.splice(index, 1)
-    // Remove platform binding if no collections selected
-    if (binding.collection_ids.length === 0) {
-      platformBindings.value = platformBindings.value.filter(b => b.platform !== platform)
-    }
+    platformBindings.value = [
+      ...platformBindings.value,
+      { platform, collection_ids: [collectionId] }
+    ]
   } else {
-    binding.collection_ids.push(collectionId)
+    const index = binding.collection_ids.indexOf(collectionId)
+    if (index > -1) {
+      // Remove collection
+      const newCollectionIds = binding.collection_ids.filter(id => id !== collectionId)
+      if (newCollectionIds.length === 0) {
+        // Remove entire platform binding if no collections left
+        platformBindings.value = platformBindings.value.filter(b => b.platform !== platform)
+      } else {
+        // Update collection_ids immutably
+        platformBindings.value = platformBindings.value.map(b =>
+          b.platform === platform
+            ? { ...b, collection_ids: newCollectionIds }
+            : b
+        )
+      }
+    } else {
+      // Add collection immutably
+      platformBindings.value = platformBindings.value.map(b =>
+        b.platform === platform
+          ? { ...b, collection_ids: [...b.collection_ids, collectionId] }
+          : b
+      )
+    }
   }
 }
 
@@ -83,6 +98,18 @@ const toggleCollection = (platform: string, collectionId: number) => {
 const getSelectedCount = (platform: string) => {
   const binding = platformBindings.value.find(b => b.platform === platform)
   return binding?.collection_ids.length || 0
+}
+
+// Get collection by ID
+const getCollectionById = (collectionId: number): Collection | undefined => {
+  return collectionsStore.platformCollections.find(c => c.id === collectionId)
+}
+
+// Get collection names for a binding
+const getBindingCollectionNames = (binding: { platform: string; collection_ids: number[] }): string[] => {
+  return binding.collection_ids
+    .map(id => getCollectionById(id)?.title)
+    .filter((title): title is string => title !== undefined)
 }
 
 // Load data when dialog opens
@@ -120,14 +147,21 @@ watch(() => props.open, (newVal) => {
 // Save bindings
 const handleSave = async () => {
   saving.value = true
+
+  console.log('💾 开始保存平台绑定...')
+  console.log('   Workshop ID:', props.workshopId)
+  console.log('   platformBindings.value:', JSON.stringify(platformBindings.value, null, 2))
+
   try {
-    await workshopsStore.updatePlatformBindings(props.workshopId, platformBindings.value)
+    const result = await workshopsStore.updatePlatformBindings(props.workshopId, platformBindings.value)
+    console.log('✅ 保存成功！返回结果:', result)
 
     toast({
       title: '保存成功',
       description: '平台绑定已更新'
     })
 
+    console.log('🔔 触发 saved 事件')
     emits('saved')
     emits('update:open', false)
   } catch (error) {
@@ -165,17 +199,30 @@ const handleSave = async () => {
         <Card v-if="platformBindings.length > 0">
           <CardHeader>
             <CardTitle class="text-sm">当前绑定</CardTitle>
+            <CardDescription class="text-xs">已选中的收藏夹列表</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div class="flex flex-wrap gap-2">
-              <div
-                v-for="binding in platformBindings"
-                :key="binding.platform"
-                class="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
-              >
-                <span>{{ availablePlatforms.find(p => p.value === binding.platform)?.icon }}</span>
-                <span>{{ availablePlatforms.find(p => p.value === binding.platform)?.label }}</span>
-                <span class="font-semibold">{{ binding.collection_ids.length }}</span>
+          <CardContent class="space-y-3">
+            <div
+              v-for="binding in platformBindings"
+              :key="binding.platform"
+              class="flex items-start gap-2"
+            >
+              <span class="text-xl mt-0.5 shrink-0">{{ availablePlatforms.find(p => p.value === binding.platform)?.icon }}</span>
+              <div class="flex-1 min-w-0">
+                <div class="flex flex-wrap gap-1.5 items-center">
+                  <template v-if="getBindingCollectionNames(binding).length > 0">
+                    <span
+                      v-for="(collectionName, idx) in getBindingCollectionNames(binding)"
+                      :key="idx"
+                      class="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary rounded text-xs font-medium"
+                    >
+                      {{ collectionName }}
+                    </span>
+                  </template>
+                  <span v-else class="text-xs text-muted-foreground italic">
+                    未找到收藏夹 ({{ binding.collection_ids.length }} 个ID)
+                  </span>
+                </div>
               </div>
             </div>
           </CardContent>
@@ -206,8 +253,8 @@ const handleSave = async () => {
               @click="toggleCollection(platform.value, collection.id)"
             >
               <Checkbox
-                :checked="isCollectionSelected(platform.value, collection.id)"
-                @click.stop
+                :modelValue="isCollectionSelected(platform.value, collection.id)"
+                :as-child="false"
               />
               <div class="flex-1 min-w-0">
                 <Label class="cursor-pointer font-medium">{{ collection.title }}</Label>

@@ -25,6 +25,23 @@ logger = get_logger(__name__)
 # ============================================================================
 
 @dataclass
+class PersistResult:
+    """Result of item persistence operation."""
+    newly_created: List[FavoriteItem]
+    needs_recovery: List[FavoriteItem]
+
+    @property
+    def all_items(self) -> List[FavoriteItem]:
+        """All items that need processing."""
+        return self.newly_created + self.needs_recovery
+
+    @property
+    def total_count(self) -> int:
+        """Total number of items."""
+        return len(self.newly_created) + len(self.needs_recovery)
+
+
+@dataclass
 class CreatorInfo:
     """Creator/Author information from stream event."""
     user_id: str
@@ -55,19 +72,24 @@ class VideoItemBrief:
     pubdate: Optional[int] = None
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> Optional["VideoItemBrief"]:
-        """Factory method to create from raw dict. Returns None if invalid."""
+    def from_dict(cls, data: Dict[str, Any], fallback_collection_id: str = "") -> Optional["VideoItemBrief"]:
+        """Factory method to create from raw dict. Returns None if invalid.
+
+        Args:
+            data: Raw video item data from RPC
+            fallback_collection_id: Collection ID from event params (used if item doesn't have it)
+        """
         bvid = str(data.get("bvid", ""))
         if not bvid:
             return None
-        
+
         creator_data = data.get("creator") or {}
-        
+
         # Extract favorite_id (platform's favorite record ID)
         favorite_id = data.get("id")
         if favorite_id is not None:
             favorite_id = str(favorite_id)
-        
+
         # Extract pubdate (publish timestamp)
         pubdate = data.get("pubdate")
         if pubdate is not None:
@@ -75,10 +97,13 @@ class VideoItemBrief:
                 pubdate = int(pubdate)
             except (ValueError, TypeError):
                 pubdate = None
-        
+
+        # Extract collection_id: prefer item's own, fallback to event params
+        collection_id = str(data.get("collection_id", "") or fallback_collection_id)
+
         return cls(
             bvid=bvid,
-            collection_id=str(data.get("collection_id", "")),
+            collection_id=collection_id,
             title=str(data.get("title", "")),
             intro=str(data.get("intro", "")),
             cover=str(data.get("cover", "")),
@@ -115,13 +140,13 @@ class EventParser(Protocol):
 
 class ItemPersister(Protocol):
     """Protocol for persisting items to database."""
-    
+
     async def persist_brief_items(
-        self, 
-        db: AsyncSession, 
+        self,
+        db: AsyncSession,
         items: List[VideoItemBrief]
-    ) -> List[FavoriteItem]:
-        """Persist brief items and return database models."""
+    ) -> PersistResult:
+        """Persist brief items, distinguishing new vs existing items needing recovery."""
         ...
 
 
@@ -156,13 +181,17 @@ class TaskCreator(Protocol):
 
 class BilibiliEventParser:
     """Parser for Bilibili plugin stream events."""
-    
+
     def parse(self, event: Dict[str, Any]) -> StreamEventData:
         """
         Parse Bilibili stream event.
-        
+
         Expected structure:
         {
+            "params": {
+                "collection_id": "...",  # Fallback if items don't contain it
+                ...
+            },
             "payload": {
                 "result": {
                     "success": true,
@@ -174,9 +203,13 @@ class BilibiliEventParser:
             }
         }
         """
+        # Extract fallback collection_id from params (used if item doesn't have it)
+        params = event.get("params") or {}
+        fallback_collection_id = str(params.get("collection_id", ""))
+
         items = self._extract_items(event)
-        video_items = self._parse_items(items)
-        
+        video_items = self._parse_items(items, fallback_collection_id)
+
         return StreamEventData(
             items=video_items,
             event_metadata=event
@@ -211,12 +244,17 @@ class BilibiliEventParser:
             logger.warning(f"Failed to extract items from event: {e}")
             return []
     
-    def _parse_items(self, items: List[Dict[str, Any]]) -> List[VideoItemBrief]:
-        """Parse raw items into VideoItemBrief objects."""
+    def _parse_items(self, items: List[Dict[str, Any]], fallback_collection_id: str = "") -> List[VideoItemBrief]:
+        """Parse raw items into VideoItemBrief objects.
+
+        Args:
+            items: Raw video items from RPC
+            fallback_collection_id: Collection ID from event params (used if items don't have it)
+        """
         parsed = []
         for item in items:
             try:
-                video_item = VideoItemBrief.from_dict(item)
+                video_item = VideoItemBrief.from_dict(item, fallback_collection_id)
                 if video_item:
                     parsed.append(video_item)
             except Exception as e:
@@ -226,51 +264,71 @@ class BilibiliEventParser:
 
 class BilibiliItemPersister:
     """Handles persistence of Bilibili items to database."""
-    
+
     def __init__(self, crud_favorites):
         """
         Initialize with CRUD dependencies.
-        
+
         Args:
             crud_favorites: CRUD module for favorites operations
         """
         self.crud = crud_favorites
-    
+
     async def persist_brief_items(
-        self, 
-        db: AsyncSession, 
+        self,
+        db: AsyncSession,
         items: List[VideoItemBrief]
-    ) -> List[FavoriteItem]:
+    ) -> PersistResult:
         """
-        Persist brief items to database idempotently.
-        
+        Persist brief items to database idempotently with recovery detection.
+
         Returns:
-            List of FavoriteItem models (both new and existing)
+            PersistResult distinguishing newly created vs items needing recovery
         """
-        persisted = []
-        
+        newly_created = []
+        needs_recovery = []
+
         for item in items:
             try:
-                db_item = await self._persist_single_item(db, item)
-                if db_item:
-                    persisted.append(db_item)
+                result = await self._persist_single_item(db, item)
+                if result:
+                    if result.get("is_new"):
+                        newly_created.append(result["item"])
+                    else:
+                        needs_recovery.append(result["item"])
             except Exception as e:
                 logger.error(f"Failed to persist item {item.bvid}: {e}")
-        
-        return persisted
+
+        return PersistResult(
+            newly_created=newly_created,
+            needs_recovery=needs_recovery
+        )
     
     async def _persist_single_item(
-        self, 
-        db: AsyncSession, 
+        self,
+        db: AsyncSession,
         item: VideoItemBrief
-    ) -> Optional[FavoriteItem]:
-        """Persist a single item, returning existing if already present."""
+    ) -> Optional[Dict[str, Any]]:
+        """Persist a single item with recovery detection.
+
+        Returns:
+            Dict with "item" (FavoriteItem) and "is_new" (bool), or None if skipped
+        """
         # Check if already exists
         existing = await self.crud.favorite_item.get_by_platform_item_id(
             db, platform_item_id=item.bvid
         )
         if existing:
-            return None
+            # Check if needs recovery
+            if await self._needs_recovery(db, existing):
+                logger.info(
+                    f"Video {item.bvid} exists but needs recovery "
+                    f"(incomplete details or task)"
+                )
+                return {"item": existing, "is_new": False}
+            else:
+                logger.debug(f"Video {item.bvid} already fully processed, skipping")
+                return None
         
         # Ensure author exists
         author = await self._ensure_author(db, item.creator)
@@ -305,8 +363,8 @@ class BilibiliItemPersister:
         db.add(db_item)
         await db.commit()
         await db.refresh(db_item)
-        
-        return db_item
+
+        return {"item": db_item, "is_new": True}
     
     async def _ensure_author(
         self, 
@@ -336,19 +394,64 @@ class BilibiliItemPersister:
         )
     
     async def _find_collection(
-        self, 
-        db: AsyncSession, 
+        self,
+        db: AsyncSession,
         collection_id: str
     ) -> Optional[models.Collection]:
         """Find collection by platform ID if exists."""
         if not collection_id:
             return None
-        
+
         return await self.crud.collection.get_by_platform_id(
             db,
             platform=models.PlatformEnum.bilibili,
             platform_collection_id=collection_id
         )
+
+    async def _needs_recovery(self, db: AsyncSession, item: models.FavoriteItem) -> bool:
+        """Check if an existing item needs recovery (incomplete processing).
+
+        An item needs recovery if:
+        1. It has no details (and not exhausted retry attempts)
+        2. It has details but no task at all (neither success nor unfinished)
+
+        Returns:
+            True if item needs recovery processing
+        """
+        from app.crud import crud_tasks
+        from app.core.config import settings
+        from sqlalchemy import select
+
+        # Check 1: Missing details
+        has_details = (
+            item.bilibili_video_details is not None
+        )
+
+        if not has_details:
+            # Allow recovery if not exhausted attempts
+            max_attempts = getattr(settings, 'BILIBILI_DETAILS_MAX_RETRY_ATTEMPTS', 5)
+            if (item.details_fetch_attempts or 0) < max_attempts:
+                return True
+            # Or if last attempt was more than 24 hours ago
+            if item.details_last_attempt_at:
+                hours_since_attempt = (
+                    datetime.utcnow() - item.details_last_attempt_at
+                ).total_seconds() / 3600
+                if hours_since_attempt > 24:
+                    return True
+            return False
+
+        # Check 2: Has details but no task at all (check ANY task, not just unfinished)
+        # ⚠️ CRITICAL FIX: If item already has SUCCESS task, no recovery needed!
+        any_task = await db.execute(
+            select(models.Task).where(
+                models.Task.favorite_item_id == item.id
+            ).limit(1)
+        )
+        has_any_task = any_task.scalars().first() is not None
+
+        # Needs recovery only if has details but NO task at all
+        return not has_any_task
 
 
 class BilibiliDetailsSyncer:
@@ -475,15 +578,18 @@ class WorkshopTaskCreator:
         )
     
     async def _has_pending_task(self, db: AsyncSession, item: FavoriteItem) -> bool:
-        """Check if item has pending or in-progress task."""
+        """Check if item has ANY existing task (including SUCCESS).
+
+        ⚠️ CRITICAL FIX: This checks for ANY task, not just PENDING/IN_PROGRESS.
+        If item already has a SUCCESS task, we should NOT create duplicate!
+        """
         from sqlalchemy import select
-        from app.db.models import Task as TaskModel, TaskStatus
-        
+        from app.db.models import Task as TaskModel
+
         result = await db.execute(
             select(TaskModel).where(
-                TaskModel.favorite_item_id == item.id,
-                TaskModel.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS])
-            )
+                TaskModel.favorite_item_id == item.id
+            ).limit(1)
         )
         return result.scalars().first() is not None
     
@@ -506,41 +612,47 @@ class WorkshopTaskCreator:
 class StreamEventOrchestrator:
     """
     Main orchestrator for handling stream events.
-    
+
     This class coordinates the entire event processing pipeline
     following clean architecture principles.
     """
-    
+
     def __init__(
         self,
         parser: EventParser,
         persister: ItemPersister,
         syncer: DetailsSyncer,
-        task_creator: TaskCreator
+        task_creator: TaskCreator,
+        first_sync_threshold: Optional[int] = None
     ):
         """
         Initialize with all dependencies.
-        
+
         Args:
             parser: Event parser implementation
             persister: Item persistence implementation
             syncer: Details syncing implementation
             task_creator: Task creation implementation
+            first_sync_threshold: Threshold for first sync detection (default: from config)
         """
+        from app.core.config import settings
+
         self.parser = parser
         self.persister = persister
         self.syncer = syncer
         self.task_creator = task_creator
+        self.first_sync_threshold = first_sync_threshold or settings.FIRST_SYNC_THRESHOLD
     
     async def handle_event(self, event: Dict[str, Any], db: AsyncSession) -> None:
         """
         Main entry point for handling stream events.
-        
+
         Pipeline:
         1. Parse event into structured data
-        2. Persist brief items to database
-        3. Sync detailed information
-        4. Create analysis tasks
+        2. Persist brief items to database (with recovery detection)
+        3. Check for first sync (skip AI processing if threshold exceeded)
+        4. Sync detailed information
+        5. Create analysis tasks
         """
         try:
             # Step 1: Parse event
@@ -548,53 +660,89 @@ class StreamEventOrchestrator:
             if not event_data.has_items:
                 logger.debug("No items in event, skipping")
                 return
-            
+
             logger.info(f"Processing {len(event_data.items)} items from event")
-            
-            # Step 2: Persist brief items
-            persisted_items = await self.persister.persist_brief_items(
-                db, 
+
+            # Step 2: Persist brief items (with recovery detection)
+            persist_result = await self.persister.persist_brief_items(
+                db,
                 event_data.items
             )
-            if not persisted_items:
-                logger.warning("No items were persisted")
+
+            logger.info(
+                f"Persistence result: {len(persist_result.newly_created)} new, "
+                f"{len(persist_result.needs_recovery)} need recovery, "
+                f"{persist_result.total_count} total"
+            )
+
+            if persist_result.total_count == 0:
+                logger.info("No items to process")
                 return
-            
-            logger.info(f"Persisted {len(persisted_items)} items")
-            
-            # Step 3: Sync details
-            await self.syncer.sync_details(db, persisted_items)
-            
-            # Step 4: Create tasks
+
+            # Step 3: Check for first sync (skip AI processing if too many new items)
+            if self._is_first_sync(persist_result):
+                logger.warning(
+                    f"⚠️  First sync detected: {len(persist_result.newly_created)} new items "
+                    f"exceeds threshold ({self.first_sync_threshold}). "
+                    f"Skipping AI processing to avoid overwhelming the system."
+                )
+                return
+
+            # Step 4: Sync details
+            await self.syncer.sync_details(db, persist_result.all_items)
+
+            # Step 5: Create tasks
             await self.task_creator.create_analysis_tasks(
-                db, 
-                persisted_items,
+                db,
+                persist_result.all_items,
                 event_data.event_metadata
             )
-            
+
             logger.info("Event processing completed successfully")
-            
+
         except Exception as e:
             logger.error(f"Failed to process event: {e}", exc_info=True)
             # Don't re-raise - allow system to continue
+
+    def _is_first_sync(self, persist_result: PersistResult) -> bool:
+        """Detect if this is a first sync based on newly created item count.
+
+        First sync is detected when newly created items exceed the configured threshold.
+        This prevents overwhelming the system with AI tasks on initial sync.
+
+        Args:
+            persist_result: Result from persistence operation
+
+        Returns:
+            True if this appears to be a first sync (skip AI processing)
+        """
+        newly_created_count = len(persist_result.newly_created)
+        return newly_created_count > self.first_sync_threshold
 
 
 # ============================================================================
 # Factory Function
 # ============================================================================
 
-def create_bilibili_event_orchestrator() -> StreamEventOrchestrator:
+def create_bilibili_event_orchestrator(
+    first_sync_threshold: Optional[int] = None
+) -> StreamEventOrchestrator:
     """
     Factory function to create a configured Bilibili event orchestrator.
-    
-    This wires up all dependencies and returns a ready-to-use orchestrator.
+
+    Args:
+        first_sync_threshold: Threshold for first sync detection (default: from config)
+
+    Returns:
+        Configured orchestrator instance
     """
     from app.crud import crud_favorites
     from app.services import favorites_service, workshop_service
-    
+
     return StreamEventOrchestrator(
         parser=BilibiliEventParser(),
         persister=BilibiliItemPersister(crud_favorites),
         syncer=BilibiliDetailsSyncer(favorites_service),
-        task_creator=WorkshopTaskCreator(crud_favorites, workshop_service)
+        task_creator=WorkshopTaskCreator(crud_favorites, workshop_service),
+        first_sync_threshold=first_sync_threshold
     )

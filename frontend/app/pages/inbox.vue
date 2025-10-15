@@ -38,6 +38,14 @@ const handleDelete = () => {
   collectionsStore.deleteItems(selectedItems.value)
   selectedItems.value = []
 }
+
+const toggleItem = (itemId: number) => {
+  if (selectedItems.value.includes(itemId)) {
+    selectedItems.value = selectedItems.value.filter(id => id !== itemId)
+  } else {
+    selectedItems.value = [...selectedItems.value, itemId]
+  }
+}
 </script>
 
 <template>
@@ -78,17 +86,12 @@ const handleDelete = () => {
                   selectedItems.includes(item.id) ? 'bg-muted' : 'hover:bg-muted/50',
                 ]"
               >
-                <Checkbox 
-                  :checked="selectedItems.includes(item.id)" 
-                  class="mt-1"
-                  @click.stop="() => {
-                    if (selectedItems.includes(item.id)) {
-                      selectedItems = selectedItems.filter(id => id !== item.id)
-                    } else {
-                      selectedItems.push(item.id)
-                    }
-                  }"
-                />
+                <div @click="toggleItem(item.id)" class="cursor-pointer mt-1">
+                  <Checkbox
+                    :modelValue="selectedItems.includes(item.id)"
+                    @click.prevent.stop
+                  />
+                </div>
                 <BilibiliImage 
                   :src="item.cover_url" 
                   :alt="item.title" 

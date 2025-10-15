@@ -1,5 +1,6 @@
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable, Awaitable
+from functools import wraps
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -253,14 +254,178 @@ async def execute_llm_chat(ctx: ExecutionContext, *, prompt_template: str, model
 Executor = Any
 
 
+class ConcurrencyConfig:
+    """Executor并发控制配置类
+
+    用于配置每个executor的并发执行限制，防止资源争用（如基于浏览器cookie的LLM调用）
+
+    Attributes:
+        limit: 最大并发执行数
+               - 1 = 串行执行（一次只能一个）
+               - >1 = 有限并发（同时最多N个）
+               - None = 无限制（API类调用）
+        description: 人类可读的限制说明
+        semaphore: asyncio信号量对象，用于实际的并发控制
+    """
+
+    def __init__(self, limit: Optional[int] = None, description: str = ""):
+        """初始化并发配置
+
+        Args:
+            limit: 最大并发数，None表示无限制
+            description: 限制原因的描述信息
+        """
+        self.limit = limit
+        self.description = description
+        # 如果指定了限制，创建对应的信号量来控制并发
+        self.semaphore = asyncio.Semaphore(limit) if limit else None
+
+    def is_unlimited(self) -> bool:
+        """检查是否为无限制并发
+
+        Returns:
+            True表示无并发限制，False表示有限制
+        """
+        return self.limit is None
+
+
+def with_concurrency_control(executor_func: Callable, config: ConcurrencyConfig) -> Callable:
+    """Decorator to apply concurrency control to an executor function.
+
+    Args:
+        executor_func: The executor function to wrap
+        config: Concurrency configuration
+
+    Returns:
+        Wrapped executor function with concurrency control
+    """
+    if config.is_unlimited():
+        # No limit, return original function
+        return executor_func
+
+    @wraps(executor_func)
+    async def wrapper(ctx: ExecutionContext, **kwargs) -> str:
+        """Wrapper that enforces concurrency limit using semaphore."""
+        semaphore = config.semaphore
+
+        logger.debug(
+            f"Task {ctx.task_id} acquiring executor lock "
+            f"(concurrency limit: {config.limit}, {config.description})"
+        )
+
+        async with semaphore:
+            logger.info(
+                f"Task {ctx.task_id} acquired executor lock, starting execution"
+            )
+            try:
+                result = await executor_func(ctx, **kwargs)
+                return result
+            finally:
+                logger.debug(f"Task {ctx.task_id} released executor lock")
+
+    return wrapper
+
+
 class ExecutorRegistry:
+    """Registry for executor functions with concurrency control.
+
+    Executors can be configured with concurrency limits to prevent
+    resource contention (e.g., browser-based LLM calls that cannot run concurrently).
+    """
+
     def __init__(self) -> None:
+        # Raw executor functions
         self._executors: Dict[str, Executor] = {
             "llm_chat": execute_llm_chat,
         }
 
+        # Concurrency configurations per executor type
+        self._concurrency_configs: Dict[str, ConcurrencyConfig] = {
+            # Yuanbao uses browser cookies, must be serialized to avoid conflicts
+            "llm_chat": ConcurrencyConfig(
+                limit=1,
+                description="Yuanbao browser session (cookie-based, must be serial)"
+            ),
+            # Future API-based executors can be unlimited:
+            # "openai_api": ConcurrencyConfig(limit=None, description="OpenAI API (unlimited)"),
+        }
+
+        # Wrapped executors with concurrency control applied
+        self._wrapped_executors: Dict[str, Executor] = {}
+        self._apply_concurrency_control()
+
+    def _apply_concurrency_control(self) -> None:
+        """Apply concurrency control to all registered executors."""
+        for executor_type, executor_func in self._executors.items():
+            config = self._concurrency_configs.get(
+                executor_type,
+                ConcurrencyConfig(limit=None, description="No limit configured")
+            )
+
+            wrapped = with_concurrency_control(executor_func, config)
+            self._wrapped_executors[executor_type] = wrapped
+
+            if config.is_unlimited():
+                logger.info(f"Registered executor '{executor_type}' with NO concurrency limit")
+            else:
+                logger.info(
+                    f"Registered executor '{executor_type}' with concurrency limit: "
+                    f"{config.limit} ({config.description})"
+                )
+
     def get(self, executor_type: str) -> Executor:
-        return self._executors.get(executor_type, execute_llm_chat)
+        """Get executor function with concurrency control applied.
+
+        Args:
+            executor_type: Type of executor (e.g., "llm_chat")
+
+        Returns:
+            Wrapped executor function with concurrency control
+        """
+        return self._wrapped_executors.get(
+            executor_type,
+            self._wrapped_executors.get("llm_chat")  # Fallback to llm_chat
+        )
+
+    def register(
+        self,
+        executor_type: str,
+        executor_func: Executor,
+        concurrency_limit: Optional[int] = None,
+        description: str = ""
+    ) -> None:
+        """Register a new executor with optional concurrency control.
+
+        Args:
+            executor_type: Unique identifier for this executor
+            executor_func: The executor function
+            concurrency_limit: Max concurrent executions (1 = serial, None = unlimited)
+            description: Human-readable description of the limit
+
+        Example:
+            registry.register(
+                "openai_gpt4",
+                execute_openai_gpt4,
+                concurrency_limit=None,  # API can handle unlimited concurrency
+                description="OpenAI GPT-4 API"
+            )
+        """
+        self._executors[executor_type] = executor_func
+        self._concurrency_configs[executor_type] = ConcurrencyConfig(
+            limit=concurrency_limit,
+            description=description
+        )
+
+        # Apply concurrency control to the new executor
+        config = self._concurrency_configs[executor_type]
+        self._wrapped_executors[executor_type] = with_concurrency_control(
+            executor_func, config
+        )
+
+        logger.info(
+            f"Registered new executor '{executor_type}' "
+            f"(limit: {concurrency_limit or 'unlimited'})"
+        )
 
 
 executor_registry = ExecutorRegistry()

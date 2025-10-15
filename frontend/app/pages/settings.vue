@@ -11,6 +11,7 @@ import { useWorkshopsStore } from '@/stores/workshops'
 import { api } from '@/lib/api'
 import { useCollectionsStore } from '@/stores/collections'
 import WorkshopPlatformBindings from '@/components/workshops/WorkshopPlatformBindings.vue'
+import AIModelSelector from '@/components/common/AIModelSelector.vue'
 
 const settingsStore = useSettingsStore()
 const settings = computed(() => settingsStore.settings)
@@ -55,7 +56,7 @@ const fetchActualCollections = async () => {
       }>
     }>('/sync/collections')
     actualCollections.value = response.items.map(c => ({
-      id: c.platform_collection_id,
+      id: String(c.id),  // 使用数据库ID，转为字符串以保持类型一致
       title: c.title,
       platform: c.platform
     }))
@@ -86,6 +87,21 @@ const handleUpdate = (key: string, value: any) => {
 const getCollectionById = (id: string | undefined): CollectionItem | undefined => {
   if (!id) return undefined
   return actualCollections.value.find(c => c.id === id)
+}
+
+// Helper function to get collection by numeric ID
+const getCollectionByNumericId = (id: number): CollectionItem | undefined => {
+  return actualCollections.value.find(c => Number(c.id) === id)
+}
+
+// Get collection names for a binding
+const getBindingCollectionNames = (binding: any): string[] => {
+  if (!binding || !binding.collection_ids || binding.collection_ids.length === 0) {
+    return []
+  }
+  return binding.collection_ids
+    .map((id: number) => getCollectionByNumericId(id)?.title)
+    .filter((title: string | undefined) => title !== undefined)
 }
 
 // Group collections by platform
@@ -169,21 +185,39 @@ const platformConfig: Record<string, { icon: any; colorClass: string; bgClass: s
           </CardHeader>
           <CardContent class="space-y-4">
             <div class="flex items-center justify-between">
-              <Label for="ai-model">AI 模型</Label>
-              <Select :model-value="settings.ai_model" @update:model-value="(val: any) => handleUpdate('ai_model', val)">
-                <SelectTrigger class="w-[280px]">
-                  <SelectValue placeholder="选择模型" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="gemini-2.5-flash-preview-05-20">gemini-2.5-flash-preview-05-20</SelectItem>
-                  <SelectItem value="gpt-4-turbo">GPT-4 Turbo</SelectItem>
-                  <SelectItem value="claude-3-opus">Claude 3 Opus</SelectItem>
-                </SelectContent>
-              </Select>
+              <div class="flex flex-col gap-1">
+                <Label for="ai-model">AI 模型</Label>
+                <span class="text-xs text-muted-foreground">
+                  选择用于内容分析的AI模型
+                </span>
+              </div>
+              <AIModelSelector
+                :model-value="settings.ai_model"
+                @update:model-value="(val: any) => handleUpdate('ai_model', val)"
+                class="w-[320px]"
+              />
             </div>
             <div class="flex items-center justify-between">
               <Label for="auto-process">自动处理新收藏</Label>
               <Switch :model-value="settings.auto_process" @update:modelValue="(val: any) => handleUpdate('auto_process', val)" />
+            </div>
+            <div class="flex flex-col gap-2 pt-2 border-t">
+              <div class="flex items-center justify-between">
+                <div class="flex flex-col gap-1">
+                  <Label for="first-sync-threshold">首次同步阈值</Label>
+                  <span class="text-xs text-muted-foreground">
+                    新增内容超过此数量时，跳过 AI 处理以避免系统过载
+                  </span>
+                </div>
+                <input
+                  id="first-sync-threshold"
+                  type="number"
+                  min="1"
+                  :value="settings.first_sync_threshold"
+                  @input="(e: any) => handleUpdate('first_sync_threshold', Number(e.target.value))"
+                  class="w-24 px-3 py-2 border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -223,16 +257,37 @@ const platformConfig: Record<string, { icon: any; colorClass: string; bgClass: s
               </div>
 
               <!-- Platform Bindings Summary -->
-              <div v-if="(wk as any).executor_config?.platform_bindings?.length > 0" class="flex flex-wrap gap-2">
+              <div v-if="(wk as any).executor_config?.platform_bindings?.length > 0" class="space-y-2.5">
                 <div
                   v-for="binding in (wk as any).executor_config.platform_bindings"
                   :key="binding.platform"
-                  class="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary rounded text-xs"
+                  class="flex items-start gap-2"
                 >
-                  <component :is="platformConfig[binding.platform]?.icon || Video" class="h-3 w-3" />
-                  <span>{{ platformNames[binding.platform] || binding.platform }}</span>
-                  <span class="font-semibold">{{ binding.collection_ids.length }}</span>
+                  <component :is="platformConfig[binding.platform]?.icon || Video" :class="['h-4 w-4 mt-0.5 shrink-0', platformConfig[binding.platform]?.colorClass]" />
+                  <div class="flex-1 min-w-0">
+                    <div class="flex flex-wrap gap-1.5 items-center">
+                      <template v-if="getBindingCollectionNames(binding).length > 0">
+                        <span
+                          v-for="(collectionName, idx) in getBindingCollectionNames(binding)"
+                          :key="idx"
+                          class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium"
+                          :class="[platformConfig[binding.platform]?.bgClass, platformConfig[binding.platform]?.colorClass]"
+                        >
+                          {{ collectionName }}
+                        </span>
+                      </template>
+                      <span v-else class="text-xs text-muted-foreground italic">
+                        未找到收藏夹 ({{ binding.collection_ids.length }} 个ID)
+                      </span>
+                    </div>
+                  </div>
                 </div>
+              </div>
+
+              <!-- Default: Auto-match by title -->
+              <div v-else class="flex items-center gap-2 text-xs text-muted-foreground italic">
+                <Settings2 class="h-3.5 w-3.5" />
+                <span>默认策略：按标题自动匹配收藏夹</span>
               </div>
 
               <!-- Actions -->

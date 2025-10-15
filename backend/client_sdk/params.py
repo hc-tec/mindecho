@@ -40,11 +40,11 @@ class ServiceParams:
         pager_selector: Used when scroll_mode == "pager".
     """
 
-    response_timeout_sec: float = 5.0
+    response_timeout_sec: float = 3.0
     delay_ms: int = 500
     queue_maxsize: Optional[int] = None
     scroll_pause_ms: int = 800
-    max_idle_rounds: int = 2
+    max_idle_rounds: int = 1
     max_items: Optional[int] = 10000
     max_seconds: int = 600
     auto_scroll: bool = True

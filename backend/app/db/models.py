@@ -95,6 +95,7 @@ class FavoriteItem(Base):
     bilibili_video_details = relationship("BilibiliVideoDetail", back_populates="favorite_item", uselist=False, cascade="all, delete-orphan", lazy="selectin")
     xiaohongshu_note_details = relationship("XiaohongshuNoteDetail", back_populates="favorite_item", uselist=False, cascade="all, delete-orphan", lazy="selectin")
     results = relationship("Result", back_populates="favorite_item", cascade="all, delete-orphan", lazy="selectin")
+    tasks = relationship("Task", back_populates="favorite_item", cascade="all, delete-orphan", lazy="selectin")
     # subtitles are related to the video details, not the favorite item itself. Moving this relationship.
 
 class Tag(Base):
@@ -267,7 +268,7 @@ class Task(Base):
     llm_model = Column(String)
     
     favorite_item_id = Column(Integer, ForeignKey("favorite_items.id"))
-    favorite_item = relationship("FavoriteItem", lazy="selectin")
+    favorite_item = relationship("FavoriteItem", back_populates="tasks", lazy="selectin")
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
@@ -293,3 +294,51 @@ class Workshop(Base):
     executor_type = Column(String, nullable=False, default="llm_chat")
     executor_config = Column(Text)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class NotificationStatus(str, enum.Enum):
+    """Status of notification delivery."""
+    PENDING = "pending"
+    SUCCESS = "success"
+    FAILED = "failed"
+    RETRYING = "retrying"
+
+
+class NotificationLog(Base):
+    """
+    Log of notification delivery attempts.
+
+    Records every notification sent through the system, including
+    success/failure status, content snapshots, and external IDs.
+    """
+    __tablename__ = "notification_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Source reference
+    result_id = Column(Integer, ForeignKey("results.id"), nullable=False, index=True)
+    result = relationship("Result", lazy="selectin")
+
+    # Pipeline identification
+    pipeline_name = Column(String, nullable=False, index=True)
+    notifier_type = Column(String, nullable=False, index=True)
+
+    # Delivery status
+    status = Column(Enum(NotificationStatus), nullable=False, default=NotificationStatus.PENDING, index=True)
+
+    # Content snapshot (for debugging/auditing)
+    content_snapshot = Column(Text)  # Truncated version of sent content
+
+    # Error tracking
+    error_message = Column(Text)
+    retry_count = Column(Integer, default=0)
+
+    # External platform reference
+    external_id = Column(String)  # e.g., Xiaohongshu note ID, email message ID
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    sent_at = Column(DateTime)  # When successfully delivered
+
+    # Metadata (JSON string)
+    # metadata = Column(Text)  # JSON-serialized dict for flexible data storage

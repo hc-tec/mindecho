@@ -131,6 +131,13 @@ class StreamManager:
                 while True:
                     try:
                         event = await stream.next(timeout=60)
+
+                        # CRITICAL: Inject stream params into event for downstream handlers
+                        # RPC plugins don't return params in events, but handlers need them
+                        # (e.g., collection_id to associate items with collections)
+                        event["params"] = params
+                        event["stream_id"] = stream_id
+
                         # if group:
                         #     await websocket_manager.broadcast_json(group, event)
                         # else:

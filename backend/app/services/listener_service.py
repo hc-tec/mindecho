@@ -46,13 +46,19 @@ async def _resolve_workshop_id_for_item(db, db_item: FavoriteItem, event: Dict[s
     try:
         collection: Optional[Collection] = None
         if db_item.collection_id:
-            collection = await db.get(Collection, db_item.collection_id)
+            # db_item.collection_id is platform_collection_id (string), need to query Collection
+            collection = await crud_favorites.collection.get_by_platform_id(
+                db,
+                platform=db_item.platform,
+                platform_collection_id=db_item.collection_id
+            )
 
         # 1) Binding by collection_id has highest priority
         rows = (await db.execute(select(WorkshopModel))).scalars().all()
         for r in rows:
             cfg = await _parse_executor_config(r)
-            if isinstance(cfg, dict) and cfg.get("listening_enabled") is True and cfg.get("binding_collection_id") == db_item.collection_id:
+            # binding_collection_id in config stores Collection.id (integer primary key)
+            if isinstance(cfg, dict) and cfg.get("listening_enabled") is True and collection and cfg.get("binding_collection_id") == collection.id:
                 return r.workshop_id
 
         # 2) Title match when enabled
@@ -145,7 +151,7 @@ async def _ingest_brief_items(db, items: List[Dict[str, Any]]) -> List[FavoriteI
                 db,
                 item_in=item_in,
                 author_id=db_author.id,
-                collection_id=db_collection.id if db_collection else None,
+                collection_id=db_collection.platform_collection_id if db_collection else None,
             )
             ingested.append(db_item)
         except Exception:
@@ -218,8 +224,7 @@ async def _build_known_briefs(db: AsyncSessionLocal, collection_id: str, platfor
             elif platform == "xiaohongshu":
                 # Xiaohongshu format: uses id and note_id (platform_item_id)
                 known_briefs.append({
-                    "id": it.platform_favorite_id or it.platform_item_id,  # Fallback to platform_item_id if no favorite_id
-                    "note_id": it.platform_item_id,
+                    "id": it.platform_item_id,
                 })
             else:
                 # Generic format: include all available fields
@@ -252,7 +257,7 @@ def _get_plugin_config_for_platform(platform: str) -> Tuple[str, str, int, List[
             f"{settings.XIAOHONGSHU_FAVORITES_PLUGIN_ID}-updates",
             settings.XIAOHONGSHU_STREAM_INTERVAL,
             settings.XIAOHONGSHU_COOKIE_IDS,
-            ["id", "note_id"],  # XHS fingerprint fields
+            settings.XIAOHONGSHU_FINGERPRINT_FIELDS,
         )
     else:
         logger.warning(f"Unknown platform: {platform}, using bilibili defaults")
