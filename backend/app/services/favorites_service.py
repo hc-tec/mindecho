@@ -188,10 +188,10 @@ class XiaohongshuNoteDetails:
     desc: str
     author_info: AuthorInfo
     tags: List[str]
-    published_date: str
-    ip_location: str
-    comment_num: str
     statistic: NoteStatistics
+    published_date: Optional[str] = None  # Can be timestamp string or ISO date string
+    ip_location: str = ""
+    comment_num: str = "0"
     images: Optional[List[str]] = None
     video: Optional[VideoInfo] = None
     timestamp: Optional[str] = None
@@ -806,12 +806,18 @@ async def _update_single_xiaohongshu_note_details(db: AsyncSession, *, note_deta
     db_item.title = note_details.title
     db_item.intro = note_details.desc
 
-    # Try to parse published_date
+    # Try to parse published_date - can be int timestamp or ISO string
     try:
         if note_details.published_date:
-            # Assuming published_date is a timestamp string
-            db_item.published_at = datetime.fromisoformat(note_details.published_date.replace('Z', '+00:00'))
-    except (ValueError, TypeError):
+            # Try parsing as integer timestamp first
+            try:
+                db_item.published_at = datetime.fromtimestamp(int(note_details.published_date))
+            except (ValueError, TypeError):
+                # If that fails, try parsing as ISO format string
+                if isinstance(note_details.published_date, str):
+                    db_item.published_at = datetime.fromisoformat(note_details.published_date.replace('Z', '+00:00'))
+    except (ValueError, TypeError, OSError):
+        # Invalid timestamp, skip updating to preserve existing value
         pass
 
     # Update tags
@@ -1117,6 +1123,10 @@ async def sync_xiaohongshu_note_details_single(
                 thumbnail_url=None
             )
 
+        # Handle published_date - convert to string if it's an integer
+        published_date_raw = details_data.get("date")
+        published_date = str(published_date_raw) if published_date_raw is not None else None
+
         note_details = XiaohongshuNoteDetails(
             note_id=str(details_data.get("id")),
             xsec_token=details_data.get("xsec_token", ""),
@@ -1128,7 +1138,7 @@ async def sync_xiaohongshu_note_details_single(
                 avatar=author_raw.get("avatar", "")
             ),
             tags=details_data.get("tags", []),
-            published_date=details_data.get("date", ""),
+            published_date=published_date,
             ip_location=details_data.get("ip_zh", ""),
             comment_num=details_data.get("comment_num", "0"),
             statistic=NoteStatistics(
