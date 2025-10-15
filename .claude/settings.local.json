@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(python:*)",
+      "Bash(mkdir:*)",
+      "Bash(git -C D:/AIProject/mindecho status)",
+      "Bash(git -C D:/AIProject/mindecho add .claude/settings.local.json)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

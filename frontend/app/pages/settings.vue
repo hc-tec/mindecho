@@ -1,23 +1,129 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { onMounted, computed, ref } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2 } from 'lucide-vue-next'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select'
+import { Loader2, Video, BookMarked, Settings2 } from 'lucide-vue-next'
+import { useWorkshopsStore } from '@/stores/workshops'
+import { api } from '@/lib/api'
+import { useCollectionsStore } from '@/stores/collections'
+import WorkshopPlatformBindings from '@/components/workshops/WorkshopPlatformBindings.vue'
 
 const settingsStore = useSettingsStore()
 const settings = computed(() => settingsStore.settings)
 const isLoading = computed(() => settingsStore.loading)
+const workshopsStore = useWorkshopsStore()
+const workshops = computed(() => workshopsStore.workshops)
+const collectionsStore = useCollectionsStore()
+
+interface CollectionItem {
+  id: string
+  title: string
+  platform: 'bilibili' | 'xiaohongshu'
+}
+
+const actualCollections = ref<Array<CollectionItem>>([])
+
+// Platform bindings dialog state
+const bindingsDialogOpen = ref(false)
+const selectedWorkshopId = ref('')
+const selectedWorkshopName = ref('')
+
+const openBindingsDialog = (workshopId: string, workshopName: string) => {
+  selectedWorkshopId.value = workshopId
+  selectedWorkshopName.value = workshopName
+  bindingsDialogOpen.value = true
+}
+
+const onBindingsSaved = async () => {
+  // Refresh workshops to show updated bindings
+  await workshopsStore.fetchWorkshops()
+}
+
+const fetchActualCollections = async () => {
+  try {
+    const response = await api.get<{
+      total: number;
+      items: Array<{
+        id: number;
+        platform_collection_id: string;
+        title: string;
+        platform: 'bilibili' | 'xiaohongshu'
+      }>
+    }>('/sync/collections')
+    actualCollections.value = response.items.map(c => ({
+      id: c.platform_collection_id,
+      title: c.title,
+      platform: c.platform
+    }))
+  } catch (error) {
+    console.error('Failed to fetch collections:', error)
+  }
+}
 
 onMounted(() => {
   settingsStore.fetchSettings()
+  workshopsStore.fetchWorkshops()
+  fetchActualCollections()
 })
+
+const updateBinding = async (workshopId: string, val: string) => {
+  const cid = val && val !== '__auto__' ? Number(val) : undefined
+  await api.put(`/workshops/manage/${workshopId}/binding`, { collection_id: cid })
+  const wk = await api.get(`/workshops/manage/${workshopId}`)
+  const idx = workshops.value.findIndex((w: any) => w.workshop_id === workshopId)
+  if (idx >= 0) workshops.value[idx] = wk as any
+}
 
 const handleUpdate = (key: string, value: any) => {
   settingsStore.updateSettings({ [key]: value })
+}
+
+// Helper function to get collection by ID
+const getCollectionById = (id: string | undefined): CollectionItem | undefined => {
+  if (!id) return undefined
+  return actualCollections.value.find(c => c.id === id)
+}
+
+// Group collections by platform
+const collectionsByPlatform = computed(() => {
+  const grouped: Record<string, CollectionItem[]> = {
+    bilibili: [],
+    xiaohongshu: []
+  }
+
+  actualCollections.value.forEach(col => {
+    if (grouped[col.platform]) {
+      grouped[col.platform].push(col)
+    }
+  })
+
+  return grouped
+})
+
+// Platform display names
+const platformNames: Record<string, string> = {
+  bilibili: '哔哩哔哩',
+  xiaohongshu: '小红书'
+}
+
+// Platform configurations (icon, color)
+const platformConfig: Record<string, { icon: any; colorClass: string; bgClass: string; borderClass: string }> = {
+  bilibili: {
+    icon: Video,
+    colorClass: 'text-[#00A1D6]',
+    bgClass: 'bg-[#00A1D6]/10',
+    borderClass: 'border-l-[#00A1D6]'
+  },
+  xiaohongshu: {
+    icon: BookMarked,
+    colorClass: 'text-[#FF2442]',
+    bgClass: 'bg-[#FF2442]/10',
+    borderClass: 'border-l-[#FF2442]'
+  }
 }
 </script>
 
@@ -42,7 +148,7 @@ const handleUpdate = (key: string, value: any) => {
           <CardContent class="space-y-4">
             <div class="flex items-center justify-between">
               <Label for="theme">主题</Label>
-              <Select :model-value="settings.theme" @update:model-value="val => handleUpdate('theme', val)">
+              <Select :model-value="settings.theme" @update:model-value="(val: any) => handleUpdate('theme', val)">
                 <SelectTrigger class="w-[180px]">
                   <SelectValue placeholder="选择主题" />
                 </SelectTrigger>
@@ -64,7 +170,7 @@ const handleUpdate = (key: string, value: any) => {
           <CardContent class="space-y-4">
             <div class="flex items-center justify-between">
               <Label for="ai-model">AI 模型</Label>
-              <Select :model-value="settings.ai_model" @update:model-value="val => handleUpdate('ai_model', val)">
+              <Select :model-value="settings.ai_model" @update:model-value="(val: any) => handleUpdate('ai_model', val)">
                 <SelectTrigger class="w-[280px]">
                   <SelectValue placeholder="选择模型" />
                 </SelectTrigger>
@@ -77,7 +183,7 @@ const handleUpdate = (key: string, value: any) => {
             </div>
             <div class="flex items-center justify-between">
               <Label for="auto-process">自动处理新收藏</Label>
-              <Switch id="auto-process" :checked="settings.auto_process" @update:checked="val => handleUpdate('auto_process', val)" />
+              <Switch :model-value="settings.auto_process" @update:modelValue="(val: any) => handleUpdate('auto_process', val)" />
             </div>
           </CardContent>
         </Card>
@@ -91,11 +197,111 @@ const handleUpdate = (key: string, value: any) => {
           <CardContent class="space-y-4">
             <div class="flex items-center justify-between">
               <Label for="notifications">启用通知</Label>
-              <Switch id="notifications" :checked="settings.notifications_enabled" @update:checked="val => handleUpdate('notifications_enabled', val)" />
+              <Switch :model-value="settings.notifications_enabled" @update:modelValue="(val: any) => handleUpdate('notifications_enabled', val)" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <!-- Listening Management -->
+        <Card>
+          <CardHeader>
+            <CardTitle>监听管理</CardTitle>
+            <CardDescription>按收藏夹粒度控制每个工坊的监听与绑定。支持多平台多收藏夹绑定。</CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <div v-for="wk in workshops" :key="(wk as any).workshop_id" class="border rounded-md p-3 space-y-3">
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="font-medium text-sm">{{ wk.name }}</div>
+                  <div class="text-xs text-muted-foreground">ID: {{ (wk as any).workshop_id }}</div>
+                </div>
+                <div class="flex items-center gap-2 select-none">
+                  <span class="text-xs text-muted-foreground">监听</span>
+                  <Switch :model-value="(wk as any).executor_config?.listening_enabled === true"
+                    @update:modelValue="(val: boolean) => workshopsStore.toggleListening((wk as any).workshop_id, Boolean(val), (wk as any).name)" />
+                </div>
+              </div>
+
+              <!-- Platform Bindings Summary -->
+              <div v-if="(wk as any).executor_config?.platform_bindings?.length > 0" class="flex flex-wrap gap-2">
+                <div
+                  v-for="binding in (wk as any).executor_config.platform_bindings"
+                  :key="binding.platform"
+                  class="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary rounded text-xs"
+                >
+                  <component :is="platformConfig[binding.platform]?.icon || Video" class="h-3 w-3" />
+                  <span>{{ platformNames[binding.platform] || binding.platform }}</span>
+                  <span class="font-semibold">{{ binding.collection_ids.length }}</span>
+                </div>
+              </div>
+
+              <!-- Actions -->
+              <div class="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="flex-1"
+                  @click="openBindingsDialog((wk as any).workshop_id, wk.name)"
+                >
+                  <Settings2 class="h-4 w-4 mr-2" />
+                  {{ (wk as any).executor_config?.platform_bindings?.length > 0 ? '管理平台绑定' : '配置平台绑定' }}
+                </Button>
+              </div>
+
+              <!-- Legacy Single Binding (Deprecated Notice) -->
+              <details v-if="(wk as any).executor_config?.binding_collection_id" class="text-xs">
+                <summary class="cursor-pointer text-muted-foreground mb-2">旧版单收藏夹绑定 (已弃用)</summary>
+                <div class="flex items-center gap-2 pl-4">
+                  <Label class="text-xs text-muted-foreground">绑定收藏夹</Label>
+                  <Select :model-value="(((wk as any).executor_config?.binding_collection_id != null ? String((wk as any).executor_config.binding_collection_id) : '__auto__') as any)"
+                    @update:model-value="(val: unknown) => updateBinding((wk as any).workshop_id, String(val))">
+                    <SelectTrigger class="w-[280px]">
+                      <SelectValue placeholder="按标题自动匹配">
+                        <template v-if="(wk as any).executor_config?.binding_collection_id">
+                          <span v-if="getCollectionById(String((wk as any).executor_config.binding_collection_id))" class="truncate">
+                            {{ getCollectionById(String((wk as any).executor_config.binding_collection_id))?.title }}
+                          </span>
+                        </template>
+                        <template v-else>
+                          <span class="text-muted-foreground">按标题自动匹配</span>
+                        </template>
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent class="max-h-[320px]">
+                      <SelectItem value="__auto__">
+                        <span class="text-muted-foreground">按标题自动匹配</span>
+                      </SelectItem>
+
+                      <template v-for="(platform, key) in collectionsByPlatform" :key="key">
+                        <SelectGroup v-if="platform.length > 0">
+                          <SelectLabel :class="['px-2 py-2.5 mt-1 mb-1 rounded-sm flex items-center gap-2 border-l-4', platformConfig[key].bgClass, platformConfig[key].borderClass]">
+                            <component :is="platformConfig[key].icon" :class="['h-4 w-4', platformConfig[key].colorClass]" />
+                            <span :class="['text-sm font-bold', platformConfig[key].colorClass]">
+                              {{ platformNames[key] }}
+                            </span>
+                          </SelectLabel>
+                          <SelectItem v-for="col in platform" :key="col.id" :value="col.id">
+                            {{ col.title }}
+                          </SelectItem>
+                        </SelectGroup>
+                      </template>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </details>
             </div>
           </CardContent>
         </Card>
       </div>
     </div>
+
+    <!-- Platform Bindings Dialog -->
+    <WorkshopPlatformBindings
+      :open="bindingsDialogOpen"
+      :workshop-id="selectedWorkshopId"
+      :workshop-name="selectedWorkshopName"
+      @update:open="bindingsDialogOpen = $event"
+      @saved="onBindingsSaved"
+    />
   </div>
 </template>

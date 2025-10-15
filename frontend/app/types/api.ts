@@ -31,15 +31,23 @@ export interface FavoriteItem {
   platform_item_id: string
   platform: string
   title: string
-  url: string
-  author_name: string
-  author_id: string
+  intro?: string
   cover_url?: string
-  description?: string
   published_at?: string
   favorited_at: string
   status: 'pending' | 'processed' | 'failed'
-  collection?: Collection
+  // Derived for convenience
+  author_name?: string
+  url?: string
+  description?: string
+  author?: {
+    platform_user_id: string
+    platform: string
+    username: string
+    avatar_url?: string
+    id: number
+  }
+  collection?: Collection | null
   tags: Tag[]
 }
 
@@ -101,7 +109,8 @@ export interface Task {
   created_at: string
   completed_at?: string
   error?: string
-  result?: Result
+  // While streaming, we may only have partial fields; always allow content-only
+  result?: Partial<Result> & { content?: string }
 }
 
 export interface PaginatedResponse<T> {

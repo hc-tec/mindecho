@@ -100,20 +100,20 @@ const isActive = (path: string) => {
       </NuxtLink>
 
       <NuxtLink 
-        to="/workshops"
+        to="/workshop"
         :class="[
           'group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200',
-          isActive('/workshops') 
+          isActive('/workshop') 
             ? 'bg-primary/10 text-primary shadow-sm' 
             : 'hover:bg-accent hover:text-accent-foreground'
         ]"
       >
         <Sparkles :class="[
           'mr-3 h-5 w-5 transition-transform duration-200',
-          isActive('/workshops') ? 'scale-110' : 'group-hover:scale-110'
+          isActive('/workshop') ? 'scale-110' : 'group-hover:scale-110'
         ]" />
         <span>AI 工坊</span>
-        <div v-if="isActive('/workshops')" class="ml-auto w-1.5 h-5 bg-primary rounded-full" />
+        <div v-if="isActive('/workshop')" class="ml-auto w-1.5 h-5 bg-primary rounded-full" />
       </NuxtLink>
     </nav>
 

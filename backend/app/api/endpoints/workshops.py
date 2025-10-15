@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from app.api import deps
 from app.core.websocket_manager import manager
+from app.services.listener_service import toggle_workshop_listening
 from app.services import workshop_service 
 
 router = APIRouter()
@@ -49,17 +50,7 @@ async def execute_workshop(
     background_tasks.add_task(workshop_service.run_workshop_task, db=db, task_id=task.id)
     return {"message": "Workshop task started.", "task_id": task.id}
 
-@router.websocket("/ws/{task_id}")
-async def workshop_websocket(websocket: WebSocket, task_id: str):
-    await manager.connect(websocket, task_id)
-    try:
-        while True:
-            # The websocket will simply listen for messages from the server.
-            # We can add logic here if client-to-server messages are needed.
-            await websocket.receive_text() 
-    except WebSocketDisconnect:
-        manager.disconnect(task_id)
-        print(f"WebSocket disconnected for task_id: {task_id}")
+# Websocket endpoint removed: frontend uses polling now
 
 # --- Workshops CRUD ---
 from app.schemas.unified import Workshop as WorkshopSchema, WorkshopCreate, WorkshopUpdate
@@ -140,3 +131,146 @@ async def delete_workshop(workshop_id: str, db: AsyncSession = Depends(deps.get_
     await db.delete(row)
     await db.commit()
     return {"ok": True}
+
+
+class ToggleListeningPayload(BaseModel):
+    enabled: bool
+    workshop_name: Optional[str] = None
+
+
+@router.post("/manage/{workshop_id}/toggle-listening")
+async def toggle_listening(workshop_id: str, payload: ToggleListeningPayload, db: AsyncSession = Depends(deps.get_db)):
+    """Enable or disable per-collection listening for a workshop.
+
+    Accepts JSON body: {"enabled": bool, "workshop_name": str | null}
+
+    If enabled, and a collection exists whose title equals workshop_id, start a stream for that collection_id.
+    If disabled, stop the stream.
+    """
+    # Delegate to service for better testability & separation of concerns
+    result = await toggle_workshop_listening(
+        db, workshop_id=workshop_id, enabled=payload.enabled, workshop_name=payload.workshop_name
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail="Workshop not found")
+    return result
+
+
+class PlatformBinding(BaseModel):
+    platform: str
+    collection_ids: List[int]
+
+
+class PlatformBindingsUpdate(BaseModel):
+    """Update platform bindings for a workshop.
+
+    New structure:
+    {
+        "platform_bindings": [
+            {"platform": "bilibili", "collection_ids": [1, 2, 3]},
+            {"platform": "xiaohongshu", "collection_ids": [4, 5]}
+        ]
+    }
+    """
+    platform_bindings: List[PlatformBinding]
+
+
+@router.put("/manage/{workshop_id}/platform-bindings")
+async def update_platform_bindings(
+    workshop_id: str,
+    bindings: PlatformBindingsUpdate,
+    db: AsyncSession = Depends(deps.get_db)
+):
+    """Update platform bindings for a workshop (multi-platform, multi-collection).
+
+    This replaces the old single-binding approach with a flexible multi-platform structure.
+
+    Example payload:
+    {
+        "platform_bindings": [
+            {"platform": "bilibili", "collection_ids": [1, 2, 3]},
+            {"platform": "xiaohongshu", "collection_ids": [4, 5]}
+        ]
+    }
+    """
+    row = (await db.execute(select(WorkshopModel).where(WorkshopModel.workshop_id == workshop_id))).scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Workshop not found")
+
+    import json as _json
+    cfg = {}
+    if row.executor_config:
+        try:
+            cfg = _json.loads(row.executor_config) or {}
+        except Exception:
+            cfg = {}
+
+    # Update platform_bindings
+    cfg["platform_bindings"] = [
+        {"platform": b.platform, "collection_ids": b.collection_ids}
+        for b in bindings.platform_bindings
+    ]
+
+    # Remove legacy single binding if exists
+    cfg.pop("binding_collection_id", None)
+
+    row.executor_config = _json.dumps(cfg, ensure_ascii=False)
+    db.add(row)
+    await db.commit()
+
+    return {
+        "ok": True,
+        "platform_bindings": cfg["platform_bindings"]
+    }
+
+
+@router.get("/manage/{workshop_id}/platform-bindings")
+async def get_platform_bindings(workshop_id: str, db: AsyncSession = Depends(deps.get_db)):
+    """Get current platform bindings for a workshop."""
+    row = (await db.execute(select(WorkshopModel).where(WorkshopModel.workshop_id == workshop_id))).scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Workshop not found")
+
+    import json as _json
+    cfg = {}
+    if row.executor_config:
+        try:
+            cfg = _json.loads(row.executor_config) or {}
+        except Exception:
+            cfg = {}
+
+    return {
+        "platform_bindings": cfg.get("platform_bindings", []),
+        "listening_enabled": cfg.get("listening_enabled", False)
+    }
+
+
+# Legacy endpoint (kept for backward compatibility)
+class ListeningBindingUpdate(BaseModel):
+    collection_id: Optional[int] = None
+
+
+@router.put("/manage/{workshop_id}/binding")
+async def update_listening_binding(workshop_id: str, binding: ListeningBindingUpdate, db: AsyncSession = Depends(deps.get_db)):
+    """[DEPRECATED] Bind or unbind a workshop to a single collection_id.
+
+    Use /platform-bindings endpoint instead for multi-platform support.
+    """
+    row = (await db.execute(select(WorkshopModel).where(WorkshopModel.workshop_id == workshop_id))).scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Workshop not found")
+    import json as _json
+    cfg = {}
+    if row.executor_config:
+        try:
+            cfg = _json.loads(row.executor_config) or {}
+        except Exception:
+            cfg = {}
+    if binding.collection_id is None:
+        cfg.pop("binding_collection_id", None)
+    else:
+        cfg["binding_collection_id"] = int(binding.collection_id)
+    row.executor_config = _json.dumps(cfg, ensure_ascii=False)
+    db.add(row)
+    await db.commit()
+    return {"ok": True, "binding_collection_id": cfg.get("binding_collection_id")}

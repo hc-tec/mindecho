@@ -9,8 +9,6 @@ interface WorkshopsState {
   tasks: Record<string, Task>
   loading: boolean
   error: string | null
-  /** 动态组件加载器映射 */
-  componentMap: Record<string, () => Promise<any>>
 }
 
 export const useWorkshopsStore = defineStore('workshops', {
@@ -19,13 +17,6 @@ export const useWorkshopsStore = defineStore('workshops', {
     tasks: {},
     loading: false,
     error: null,
-    // 动态组件映射 (type -> component name)，在 setup 中通过 import.meta.glob 可进一步自动注册
-    // 这里先手动内置常见映射，未知类型 fallback 到 GenericWorkshop
-    componentMap: {
-      'information-alchemy': () => import('@/components/workshops/InformationAlchemy.vue'),
-      'point-counterpoint': () => import('@/components/workshops/PointCounterpoint.vue'),
-      'generic': () => import('@/components/workshops/GenericWorkshop.vue'),
-    } as Record<string, () => Promise<any>>,
   }),
 
   actions: {
@@ -37,6 +28,27 @@ export const useWorkshopsStore = defineStore('workshops', {
       } catch (error) {
         this.error = 'Failed to fetch workshops'
         console.error(error)
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async fetchWorkshopBySlug(slug: string) {
+      this.loading = true
+      this.error = null
+      try {
+        const wk = await api.get<Workshop>(`/workshops/manage/${slug}`)
+        const idx = (this.workshops as any[]).findIndex((w: any) => w.workshop_id === slug)
+        if (idx >= 0) {
+          this.workshops[idx] = wk
+        } else {
+          this.workshops.push(wk)
+        }
+        return wk
+      } catch (error) {
+        this.error = 'Failed to fetch workshop'
+        console.error(error)
+        return null
       } finally {
         this.loading = false
       }
@@ -73,7 +85,6 @@ export const useWorkshopsStore = defineStore('workshops', {
         toast({
           title: 'Execution Error',
           description: 'Failed to start the workshop. Please try again.',
-          variant: 'destructive',
         })
         return null
       } finally {
@@ -90,38 +101,37 @@ export const useWorkshopsStore = defineStore('workshops', {
       }
     },
 
+    // Replaced websocket streaming with polling
     subscribeToTask(taskId: string) {
-      const wsUrl = `ws://127.0.0.1:8001/api/v1/workshops/ws/${taskId}`
-      const { onMessage, disconnect } = useWebSocket(wsUrl)
-
-      const unsubscribe = onMessage((data) => {
-        // Update task state based on WebSocket messages
+      const interval = setInterval(async () => {
+        await this.fetchTask(taskId)
         const task = this.tasks[taskId]
         if (!task) return
+        if (task.status === 'success' || task.status === 'failure') {
+          clearInterval(interval)
+        }
+      }, 2000)
+      return () => clearInterval(interval)
+    },
 
-        if (data.status) {
-          task.status = data.status
-        }
-        if (data.type === 'token' && data.data) {
-          if (!task.result) {
-            task.result = { content: '' } // Initialize if it doesn't exist
+    subscribeToTaskStarts(onStart?: (taskId: string) => void) {
+      // Poll recent tasks to discover new ones
+      const seen = new Set<string>()
+      const interval = setInterval(async () => {
+        try {
+          const res = await api.get<{ total: number; items: Task[] }>(`/tasks?page=1&size=20`)
+          for (const t of res.items) {
+            if (!seen.has(String(t.id))) {
+              seen.add(String(t.id))
+              this.tasks[String(t.id)] = t
+              if (onStart) onStart(String(t.id))
+            }
           }
-          task.result.content += data.data
+        } catch (e) {
+          console.error('Poll tasks error', e)
         }
-        if (data.status === 'success' || data.status === 'failure') {
-          if (data.result) {
-            task.result = { content: data.result }
-          }
-          if(data.error) {
-            task.error = data.error
-          }
-          task.completed_at = new Date().toISOString()
-          unsubscribe()
-          disconnect()
-        }
-      })
-      
-      return unsubscribe
+      }, 5000)
+      return () => clearInterval(interval)
     },
 
     // ---------- CRUD ----------
@@ -148,6 +158,20 @@ export const useWorkshopsStore = defineStore('workshops', {
       }
     },
 
+    async toggleListening(workshopId: string, enabled: boolean, workshopName?: string) {
+      try {
+        await api.post(`/workshops/manage/${workshopId}/toggle-listening`, { enabled, workshop_name: workshopName ?? undefined })
+        // Refresh single workshop to get updated executor_config
+        const wk = await api.get<Workshop>(`/workshops/manage/${workshopId}`)
+        const idx = (this.workshops as any[]).findIndex((w: any) => w.workshop_id === workshopId)
+        if (idx >= 0) this.workshops[idx] = wk
+        else this.workshops.push(wk)
+      } catch (err) {
+        this.error = 'Failed to toggle listening'
+        throw err
+      }
+    },
+
     async deleteWorkshop(workshopId: string) {
       try {
         await api.delete(`/workshops/manage/${workshopId}`)
@@ -158,9 +182,42 @@ export const useWorkshopsStore = defineStore('workshops', {
       }
     },
 
+    // ---------- Platform Bindings ----------
+    async getPlatformBindings(workshopId: string) {
+      try {
+        const response = await api.get<{
+          platform_bindings: Array<{ platform: string; collection_ids: number[] }>
+          listening_enabled: boolean
+        }>(`/workshops/manage/${workshopId}/platform-bindings`)
+        return response
+      } catch (err) {
+        this.error = 'Failed to get platform bindings'
+        throw err
+      }
+    },
+
+    async updatePlatformBindings(workshopId: string, bindings: Array<{ platform: string; collection_ids: number[] }>) {
+      try {
+        const response = await api.put<{
+          ok: boolean
+          platform_bindings: Array<{ platform: string; collection_ids: number[] }>
+        }>(`/workshops/manage/${workshopId}/platform-bindings`, {
+          platform_bindings: bindings
+        })
+
+        // Refresh workshop to get updated config
+        await this.fetchWorkshopBySlug(workshopId)
+
+        return response
+      } catch (err) {
+        this.error = 'Failed to update platform bindings'
+        throw err
+      }
+    },
+
     // ---------- Helpers ----------
     getWorkshopById(id: string) {
-      return this.workshops.find(w => w.id === id)
+      return (this.workshops as any[]).find((w: any) => String(w.id) === String(id))
     },
 
     getWorkshopBySlug(slug: string) {
@@ -168,8 +225,5 @@ export const useWorkshopsStore = defineStore('workshops', {
       return this.workshops.find((w: any) => w.workshop_id === slug)
     },
 
-    getComponentLoader(type: string) {
-      return this.componentMap[type] ?? this.componentMap['generic']
-    },
   },
 })

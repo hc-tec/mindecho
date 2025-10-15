@@ -16,7 +16,6 @@ class FavoriteItemStatus(str, enum.Enum):
     PENDING = "pending"
     PROCESSING = "processing"
     PROCESSED = "processed"
-    ARCHIVED = "archived"
     FAILED = "failed"
 
 class TaskStatus(str, enum.Enum):
@@ -67,26 +66,34 @@ class FavoriteItem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     platform_item_id = Column(String, nullable=False, index=True, unique=True)
+    # Optional: platform-level favorite ID (e.g., Bilibili favorite record id)
+    platform_favorite_id = Column(String)
     platform = Column(Enum(PlatformEnum), nullable=False)
     item_type = Column(Enum(ItemTypeEnum), nullable=False)
     title = Column(String, nullable=False)
     intro = Column(Text)
     cover_url = Column(String)
     status = Column(Enum(FavoriteItemStatus), nullable=False, default=FavoriteItemStatus.PENDING, index=True)
-    
+
     published_at = Column(DateTime)
     favorited_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+    # Details fetch retry mechanism (for Xiaohongshu primarily)
+    details_fetch_attempts = Column(Integer, default=0)
+    details_last_attempt_at = Column(DateTime)
+    details_fetch_error = Column(Text)  # Last error message
+
     author_id = Column(Integer, ForeignKey("authors.id"))
     author = relationship("Author", back_populates="items", lazy="selectin")
     
-    collection_id = Column(Integer, ForeignKey("collections.id"))
     collection = relationship("Collection", back_populates="items", lazy="selectin")
-    
+    collection_id = Column(String, ForeignKey("collections.platform_collection_id"))
+
     tags = relationship("Tag", secondary=item_tags, back_populates="items", lazy="selectin")
 
     bilibili_video_details = relationship("BilibiliVideoDetail", back_populates="favorite_item", uselist=False, cascade="all, delete-orphan", lazy="selectin")
+    xiaohongshu_note_details = relationship("XiaohongshuNoteDetail", back_populates="favorite_item", uselist=False, cascade="all, delete-orphan", lazy="selectin")
     results = relationship("Result", back_populates="favorite_item", cascade="all, delete-orphan", lazy="selectin")
     # subtitles are related to the video details, not the favorite item itself. Moving this relationship.
 
@@ -175,18 +182,67 @@ class BilibiliSubtitle(Base):
     video_detail_id = Column(Integer, ForeignKey("bilibili_video_details.id"), nullable=False)
     video_detail = relationship("BilibiliVideoDetail", back_populates="subtitles", lazy="selectin")
 
-# Placeholder for Xiaohongshu details
-# class XiaohongshuNoteDetail(Base):
-#     __tablename__ = "xiaohongshu_note_details"
-#     id = Column(Integer, primary_key=True, index=True)
-#     like_count = Column(Integer)
-#     collect_count = Column(Integer)
-#     comment_count = Column(Integer)
-#     favorite_item_id = Column(Integer, ForeignKey("favorite_items.id"), nullable=False)
-#     favorite_item = relationship("FavoriteItem", back_populates="xiaohongshu_note_details")
+# Xiaohongshu Note Details
+class XiaohongshuNoteDetail(Base):
+    __tablename__ = "xiaohongshu_note_details"
 
-# To support Xiaohongshu in FavoriteItem, you would add:
-# xiaohongshu_note_details = relationship("XiaohongshuNoteDetail", back_populates="favorite_item", uselist=False, cascade="all, delete-orphan")
+    id = Column(Integer, primary_key=True, index=True)
+    note_id = Column(String, unique=True, index=True, nullable=False)
+    xsec_token = Column(String)
+
+    # Description field
+    desc = Column(Text)
+
+    # Location information
+    ip_location = Column(String)  # ip_zh in source
+
+    # Publication date
+    published_date = Column(String)  # date field from source
+
+    # Statistics
+    like_count = Column(Integer)
+    collect_count = Column(Integer)
+    comment_count = Column(Integer)
+    share_count = Column(Integer)
+
+    # Timestamp when data was fetched
+    fetched_timestamp = Column(String)
+
+    favorite_item_id = Column(Integer, ForeignKey("favorite_items.id"), nullable=False)
+    favorite_item = relationship("FavoriteItem", back_populates="xiaohongshu_note_details", lazy="selectin")
+
+    # Relationships to images and video
+    images = relationship("XiaohongshuNoteImage", back_populates="note_detail", cascade="all, delete-orphan", lazy="selectin")
+    video = relationship("XiaohongshuNoteVideo", back_populates="note_detail", uselist=False, cascade="all, delete-orphan", lazy="selectin")
+
+
+# Xiaohongshu Note Images
+class XiaohongshuNoteImage(Base):
+    __tablename__ = "xiaohongshu_note_images"
+
+    id = Column(Integer, primary_key=True, index=True)
+    image_url = Column(Text, nullable=False)
+    order_index = Column(Integer, default=0)  # To maintain order
+
+    note_detail_id = Column(Integer, ForeignKey("xiaohongshu_note_details.id"), nullable=False)
+    note_detail = relationship("XiaohongshuNoteDetail", back_populates="images", lazy="selectin")
+
+
+# Xiaohongshu Note Video
+class XiaohongshuNoteVideo(Base):
+    __tablename__ = "xiaohongshu_note_videos"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Video information (structure from VideoInfo dataclass)
+    video_url = Column(Text)
+    duration = Column(Integer)  # Duration in seconds or milliseconds
+    width = Column(Integer)
+    height = Column(Integer)
+    thumbnail_url = Column(String)
+
+    note_detail_id = Column(Integer, ForeignKey("xiaohongshu_note_details.id"), nullable=False, unique=True)
+    note_detail = relationship("XiaohongshuNoteDetail", back_populates="video", lazy="selectin")
 
 class Result(Base):
     __tablename__ = "results"

@@ -18,14 +18,14 @@ class LogConfig:
             "console": {
                 "class": "logging.StreamHandler",
                 "formatter": "default",
-                "level": "INFO",
+                "level": "DEBUG",
                 "stream": "ext://sys.stdout",
             },
         },
         "loggers": {
             "app": {
                 "handlers": ["console"],
-                "level": "INFO",
+                "level": "DEBUG",
                 "propagate": False,
             },
             "uvicorn": {
@@ -36,6 +36,16 @@ class LogConfig:
             "uvicorn.access": {
                 "handlers": ["console"],
                 "level": "INFO",
+                "propagate": False,
+            },
+            "httpcore.http11": {
+                "handlers": ["console"],
+                "level": "WARNING",
+                "propagate": False,
+            },
+            "httpcore.connection": {
+                "handlers": ["console"],
+                "level": "WARNING",
                 "propagate": False,
             },
             "httpx": {
@@ -53,10 +63,15 @@ class LogConfig:
                 "level": "WARNING",
                 "propagate": False,
             },
+            "aiosqlite": {
+                "handlers": ["console"],
+                "level": "WARNING",
+                "propagate": False,
+            },
         },
         "root": {
             "handlers": ["console"],
-            "level": "INFO",
+            "level": "DEBUG",
         },
     }
 

@@ -176,3 +176,51 @@ async def test_global_task_status_and_clear(client: AsyncClient, db_session: Asy
     response_global_after = await client.get("/api/v1/tasks/status")
     assert response_global_after.status_code == 200
     assert response_global_after.json()["total"] == 0
+
+
+@patch("app.api.endpoints.workshops.toggle_workshop_listening", new_callable=AsyncMock)
+async def test_toggle_listening_success(mock_toggle, client: AsyncClient):
+    await _ensure_workshop(client)
+    mock_toggle.return_value = {"ok": True, "enabled": True}
+    resp = await client.post("/api/v1/workshops/manage/summary-01/toggle-listening", json={"enabled": True, "workshop_name": "精华摘要"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body.get("ok") is True
+
+
+@patch("app.api.endpoints.workshops.toggle_workshop_listening", new_callable=AsyncMock)
+async def test_toggle_listening_not_found(mock_toggle, client: AsyncClient):
+    mock_toggle.return_value = {"ok": False}
+    resp = await client.post("/api/v1/workshops/manage/not-exist/toggle-listening", json={"enabled": True, "workshop_name": "不存在"})
+    assert resp.status_code == 404
+
+
+async def test_update_listening_binding_roundtrip(client: AsyncClient):
+    await _ensure_workshop(client)
+
+    # Bind to a collection_id
+    resp_bind = await client.put(
+        "/api/v1/workshops/manage/summary-01/binding", json={"collection_id": 123}
+    )
+    assert resp_bind.status_code == 200
+    assert resp_bind.json()["binding_collection_id"] == 123
+
+    # Verify persisted executor_config
+    ws_resp = await client.get("/api/v1/workshops/manage/summary-01")
+    assert ws_resp.status_code == 200
+    cfg = ws_resp.json().get("executor_config")
+    assert isinstance(cfg, dict)
+    assert cfg.get("binding_collection_id") == 123
+
+    # Unbind (set to null)
+    resp_unbind = await client.put(
+        "/api/v1/workshops/manage/summary-01/binding", json={"collection_id": None}
+    )
+    assert resp_unbind.status_code == 200
+    assert resp_unbind.json()["binding_collection_id"] is None
+
+    # Verify removal from config (empty dict or missing key)
+    ws_resp2 = await client.get("/api/v1/workshops/manage/summary-01")
+    assert ws_resp2.status_code == 200
+    cfg2 = ws_resp2.json().get("executor_config") or {}
+    assert "binding_collection_id" not in cfg2 or cfg2.get("binding_collection_id") is None

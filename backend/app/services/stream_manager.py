@@ -25,6 +25,7 @@ class StreamManager:
             webhook_port=0,
         )
         self._tasks: Dict[str, asyncio.Task] = {}
+        self._remote_task_ids: Dict[str, str] = {}
         self._running: bool = False
         self._on_event: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None
 
@@ -80,9 +81,27 @@ class StreamManager:
         return stream_id
 
     def stop_stream(self, stream_id: str) -> bool:
-        task = self._tasks.get(stream_id)
+        """Stop local stream task and delete remote plugin task.
+
+        We assume the remote task ID equals the provided ``stream_id`` unless
+        another convention is introduced later. If you store explicit task IDs
+        elsewhere, replace the fallback accordingly.
+        """
+        task = self._tasks.pop(stream_id, None)
         if task:
             task.cancel()
+
+            # Find real remote task id if recorded
+            remote_id = self._remote_task_ids.pop(stream_id, None) or stream_id
+
+            # Fire-and-forget deletion of the remote task to avoid blocking.
+            async def _delete() -> None:  # pragma: no cover – best-effort cleanup
+                try:
+                    await self.client.delete_task(remote_id)
+                except Exception:
+                    logger.exception("Failed to delete remote task %s for stream %s", remote_id, stream_id)
+
+            asyncio.create_task(_delete())
             return True
         return False
 
@@ -105,14 +124,23 @@ class StreamManager:
                 buffer_size=buffer_size,
                 **params,
             ) as stream:
-                async for event in stream:
-                    if group:
-                        await websocket_manager.broadcast_json(group, event)
-                    else:
-                        await websocket_manager.send_json(stream_id, event)
-                    if self._on_event:
-                        # Best-effort: do not block broadcast path
-                        asyncio.create_task(self._on_event(event))
+                # Record remote task id if provided by client
+                remote_id: Optional[str] = getattr(stream, "remote_task_id", None)
+                if remote_id:
+                    self._remote_task_ids[stream_id] = remote_id
+                while True:
+                    try:
+                        event = await stream.next(timeout=60)
+                        # if group:
+                        #     await websocket_manager.broadcast_json(group, event)
+                        # else:
+                        #     await websocket_manager.send_json(stream_id, event)
+                        if self._on_event:
+                            # Best-effort: do not block broadcast path
+                            asyncio.create_task(self._on_event(event))
+                    except TimeoutError:
+                        logger.debug("⌛ 60s内未收到事件，继续等待...")
+                        continue
         except asyncio.CancelledError:
             pass
         except Exception:

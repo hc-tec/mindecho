@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from client_sdk.rpc_client import EAIRPCClient
+from client_sdk.rpc_client_async import EAIRPCClient
 
 router = APIRouter()
 

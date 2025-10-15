@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import List, Optional, Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete as sql_delete
 
 from app.crud import crud_favorites
 from app.db import models
@@ -137,6 +138,63 @@ class BilibiliVideoBrief:
     intro: str
     creator: AuthorInfo
     fav_time: str
+    # Platform-provided favorite record id; if present, we will use it as DB primary key
+    favorite_id: str
+    pubdate: Optional[str] = None  # Video publish timestamp
+
+
+# ============================================================================
+# Xiaohongshu Data Structures
+# ============================================================================
+
+@dataclass
+class NoteStatistics:
+    """Statistics for Xiaohongshu note."""
+    like_count: int
+    collect_count: int
+    comment_count: int
+    share_count: int
+
+
+@dataclass
+class VideoInfo:
+    """Video information for Xiaohongshu note."""
+    video_url: Optional[str] = None
+    duration: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    thumbnail_url: Optional[str] = None
+
+
+@dataclass
+class XiaohongshuNoteBrief:
+    """Brief information for Xiaohongshu note (from collection list)."""
+    note_id: str
+    xsec_token: str
+    title: str
+    author_info: AuthorInfo
+    statistic: NoteStatistics
+    cover_image: str
+    collection_id: Optional[str] = None
+    fav_time: Optional[str] = None
+
+
+@dataclass
+class XiaohongshuNoteDetails:
+    """Detailed information for Xiaohongshu note."""
+    note_id: str
+    xsec_token: str
+    title: str
+    desc: str
+    author_info: AuthorInfo
+    tags: List[str]
+    published_date: str
+    ip_location: str
+    comment_num: str
+    statistic: NoteStatistics
+    images: Optional[List[str]] = None
+    video: Optional[VideoInfo] = None
+    timestamp: Optional[str] = None
 
 
 # This function remains as a low-level utility
@@ -210,6 +268,14 @@ async def _sync_single_bilibili_video_brief(db: AsyncSession, *, video_brief: Bi
         db, platform="bilibili", platform_collection_id=video_brief.collection_id
     )
 
+    # Parse published_at if available
+    published_at = None
+    if video_brief.pubdate:
+        try:
+            published_at = datetime.fromtimestamp(int(video_brief.pubdate))
+        except (ValueError, TypeError):
+            pass
+    
     item_in = schemas.FavoriteItemCreate(
         platform_item_id=video_brief.bvid,
         platform="bilibili",
@@ -218,12 +284,14 @@ async def _sync_single_bilibili_video_brief(db: AsyncSession, *, video_brief: Bi
         intro=video_brief.intro,
         cover_url=video_brief.cover,
         favorited_at=datetime.fromtimestamp(int(video_brief.fav_time)),
+        published_at=published_at,
     )
     item_dict = item_in.dict()
     db_item = models.FavoriteItem(
         **item_dict,
         author_id=db_author.id,
-        collection_id=db_collection.id if db_collection else None,
+        platform_favorite_id=video_brief.favorite_id,
+        collection_id=video_brief.collection_id,  # Platform collection ID (foreign key to collections.platform_collection_id)
     )
     
     db.add(db_item)
@@ -247,7 +315,13 @@ async def _update_single_bilibili_video_details(db: AsyncSession, *, video_detai
     db_item.title = video_details.title
     db_item.intro = video_details.intro
     db_item.cover_url = video_details.cover
-    db_item.published_at = datetime.fromtimestamp(int(video_details.pubdate))
+    # Safely parse and update published_at; some videos may have missing or non-numeric pubdate values
+    try:
+        if video_details.pubdate not in (None, "", "None"):
+            db_item.published_at = datetime.fromtimestamp(int(video_details.pubdate))
+    except (ValueError, TypeError, OSError):
+        # Invalid timestamp, skip updating to preserve existing value
+        pass
 
     # Update tags
     db_tags = await crud_favorites.tag.get_or_create_many(db, tag_names=video_details.tags)
@@ -259,6 +333,10 @@ async def _update_single_bilibili_video_details(db: AsyncSession, *, video_detai
     if not detail_model:
         detail_model = models.BilibiliVideoDetail(favorite_item_id=db_item.id)
         db.add(detail_model)
+        await db.flush()  # CRITICAL: Flush to get detail_model.id before creating nested objects
+    else:
+        # Ensure all nested relationships are loaded to avoid unique constraint errors
+        await db.refresh(detail_model, ['video_url', 'audio_url', 'subtitles'])
         
     # Update fields from BiliVideoDetails dataclass
     stat = video_details.stat
@@ -274,43 +352,67 @@ async def _update_single_bilibili_video_details(db: AsyncSession, *, video_detai
     # Create or Update VideoUrl
     v_url = video_details.video_url
     if v_url:
-        if not detail_model.video_url:
-            detail_model.video_url = models.BilibiliVideoUrl()
+        # Delete any existing video_url for this detail (using direct SQL to avoid lazy loading issues)
+        await db.execute(
+            sql_delete(models.BilibiliVideoUrl).where(models.BilibiliVideoUrl.video_detail_id == detail_model.id)
+        )
+        await db.flush()
         
-        detail_model.video_url.platform_media_id=str(v_url.id)
-        detail_model.video_url.base_url=v_url.base_url
-        detail_model.video_url.backup_url=str(v_url.backup_url)
-        detail_model.video_url.bandwidth=v_url.bandwidth
-        detail_model.video_url.mime_type=v_url.mime_type; detail_model.video_url.codecs=v_url.codecs
-        detail_model.video_url.width=v_url.width; detail_model.video_url.height=v_url.height
-        detail_model.video_url.frame_rate=v_url.frame_rate
+        # Create new video_url
+        new_video_url = models.BilibiliVideoUrl(
+            platform_media_id=str(v_url.id),
+            base_url=v_url.base_url,
+            backup_url=str(v_url.backup_url),
+            bandwidth=v_url.bandwidth,
+            mime_type=v_url.mime_type,
+            codecs=v_url.codecs,
+            width=v_url.width,
+            height=v_url.height,
+            frame_rate=v_url.frame_rate,
+            video_detail_id=detail_model.id
+        )
+        db.add(new_video_url)
 
     # Create or Update AudioUrl
     a_url = video_details.audio_url
     if a_url:
-        if not detail_model.audio_url:
-            detail_model.audio_url = models.BilibiliAudioUrl()
-
-        detail_model.audio_url.platform_media_id=str(a_url.id)
-        detail_model.audio_url.base_url=a_url.base_url
-        detail_model.audio_url.backup_url=str(a_url.backup_url)
-        detail_model.audio_url.bandwidth=a_url.bandwidth
-        detail_model.audio_url.mime_type=a_url.mime_type; detail_model.audio_url.codecs=a_url.codecs
+        # Delete any existing audio_url for this detail (using direct SQL to avoid lazy loading issues)
+        await db.execute(
+            sql_delete(models.BilibiliAudioUrl).where(models.BilibiliAudioUrl.video_detail_id == detail_model.id)
+        )
+        await db.flush()
+        
+        # Create new audio_url
+        new_audio_url = models.BilibiliAudioUrl(
+            platform_media_id=str(a_url.id),
+            base_url=a_url.base_url,
+            backup_url=str(a_url.backup_url),
+            bandwidth=a_url.bandwidth,
+            mime_type=a_url.mime_type,
+            codecs=a_url.codecs,
+            video_detail_id=detail_model.id
+        )
+        db.add(new_audio_url)
         
     # Create/Update Subtitles
     if video_details.subtitles and video_details.subtitles.subtitles:
-        # Clear existing subtitles before adding new ones
-        await db.flush() # First, process other changes
-        for sub in detail_model.subtitles: # Then, manually delete existing subtitles
-            await db.delete(sub)
+        # Clear existing subtitles using SQL DELETE (avoid lazy loading in async context)
+        await db.execute(
+            sql_delete(models.BilibiliSubtitle).where(models.BilibiliSubtitle.video_detail_id == detail_model.id)
+        )
         await db.flush()
 
+        # Add new subtitles
         for sub_item in video_details.subtitles.subtitles:
             new_sub = models.BilibiliSubtitle(
-                sid=sub_item.sid, lang=video_details.subtitles.lang,
-                content=sub_item.content, from_sec=sub_item.from_, to_sec=sub_item.to
+                sid=sub_item.sid, 
+                lang=video_details.subtitles.lang,
+                content=sub_item.content, 
+                from_sec=sub_item.from_, 
+                to_sec=sub_item.to,
+                video_detail_id=detail_model.id
             )
-            detail_model.subtitles.append(new_sub)
+            db.add(new_sub)
 
     db.add(db_item)
     await db.commit()
@@ -384,22 +486,44 @@ async def sync_videos_in_bilibili_collection(db: AsyncSession, *, platform_colle
         results = await client.get_collection_list_videos_from_bilibili(
             collection_id=platform_collection_id,
             user_id=db_collection.author.platform_user_id,
-            task_params=TaskParams(cookie_ids=["23d87982-a801-4d12-ae93-50a85e336e98"], close_page_when_task_finished=True),
+            task_params=TaskParams(cookie_ids=["23d87982-a801-4d12-ae93-50a85e336e98"],
+                                   close_page_when_task_finished=True),
             service_params=service_params, rpc_timeout_sec=120
         )
         if not results.get("success"):
             raise RuntimeError(f"Failed to fetch videos for collection {platform_collection_id}: {results.get('error')}")
+        # Accept both shapes:
+        # 1) { success: True, data: [ {..video..}, ... ] }
+        # 2) { success: True, data: { data: [ {..video..}, ... ] } }
+        raw_data = results.get("data")
+        if isinstance(raw_data, list):
+            video_list = raw_data
+        elif isinstance(raw_data, dict):
+            video_list = (raw_data.get("data") or []) if isinstance(raw_data.get("data"), list) else []
+        else:
+            video_list = []
 
-        for video_raw in results.get("data", []):
+        for video_raw in video_list:
             creator_raw = video_raw.get("creator", {})
+            
+            # Extract pubdate if available
+            pubdate_raw = video_raw.get("pubdate")
+            pubdate_str = str(pubdate_raw) if pubdate_raw is not None else None
+            
             video_brief = BilibiliVideoBrief(
-                bvid=video_raw.get("bvid"), collection_id=platform_collection_id,
-                cover=video_raw.get("cover"), title=video_raw.get("title"),
-                intro=video_raw.get("intro"), fav_time=str(video_raw.get("fav_time")),
+                bvid=video_raw.get("bvid"), 
+                collection_id=platform_collection_id,
+                cover=video_raw.get("cover"), 
+                title=video_raw.get("title"),
+                intro=video_raw.get("intro"), 
+                fav_time=str(video_raw.get("fav_time")),
                 creator=AuthorInfo(
-                    user_id=str(creator_raw.get("user_id")), username=creator_raw.get("username"),
+                    user_id=str(creator_raw.get("user_id")), 
+                    username=creator_raw.get("username"),
                     avatar=creator_raw.get("avatar")
-                )
+                ),
+                favorite_id=video_raw.get("id"),
+                pubdate=pubdate_str,
             )
             db_item = await _sync_single_bilibili_video_brief(db, video_brief=video_brief)
             videos_synced.append(db_item)
@@ -426,7 +550,8 @@ async def sync_bilibili_videos_details(db: AsyncSession, *, bvids: List[str]) ->
 
             results = await client.get_video_details_from_bilibili(
                 bvid=bvid,
-                task_params=TaskParams(cookie_ids=["23d87982-a801-4d12-ae93-50a85e336e98"], close_page_when_task_finished=True),
+                task_params=TaskParams(cookie_ids=["23d87982-a801-4d12-ae93-50a85e336e98"],
+                                       close_page_when_task_finished=True),
                 service_params=ServiceParams(need_raw_data=True),
             )
             if not results.get("success"):
@@ -435,8 +560,10 @@ async def sync_bilibili_videos_details(db: AsyncSession, *, bvids: List[str]) ->
             
             # Accept both shapes: { data: { ...details... } } or { data: { details: { data: {...} } } }
             outer_data = results.get("data", {}) or {}
-            details_data = outer_data.get("details", {}).get("data", {}) if isinstance(outer_data.get("details"), dict) else {}
-            if not details_data:
+            if isinstance(outer_data.get("details"), dict):
+                details_data = outer_data["details"].get("data", {}) or {}
+            else:
+                # When RPC returns the details directly under 'data' without nesting
                 details_data = outer_data
             if not details_data:
                 print(f"Warning: 'details' key missing or empty in response for bvid {bvid}. Raw response: {results}")
@@ -479,7 +606,7 @@ async def sync_bilibili_videos_details(db: AsyncSession, *, bvids: List[str]) ->
                 )
             
             subtitles_obj = None
-            if subs_data and subs_data.get('body'):
+            if subs_data and subs_data.get('subtitles'):
                 subtitles_obj = VideoSubtitleList(
                     lang=subs_data.get('lang'),
                     subtitles=[
@@ -487,8 +614,9 @@ async def sync_bilibili_videos_details(db: AsyncSession, *, bvids: List[str]) ->
                             sid=s.get('sid'),
                             from_=s.get('from'),
                             to=s.get('to'),
-                            content=s.get('content')
-                        ) for s in subs_data.get('body', [])
+                            content=s.get('content'),
+                            location=s.get('location')
+                        ) for s in subs_data.get('subtitles', [])
                     ]
                 )
             
@@ -551,3 +679,513 @@ async def sync_bilibili_videos_details(db: AsyncSession, *, bvids: List[str]) ->
     finally:
         await client.stop()
     return [await _to_favorite_schema_async(db, v) for v in videos_updated]
+
+
+async def ingest_bilibili_video_briefs(db: AsyncSession, *, items: List[Dict]) -> List[models.FavoriteItem]:
+    """Ingest a list of Bilibili video brief dicts from plugin stream events.
+
+    Each item is expected to include fields: bvid, collection_id, cover, title, intro,
+    creator { user_id, username, avatar }, fav_time.
+    If the favorite item already exists, it will be returned as-is.
+    """
+    ingested: List[models.FavoriteItem] = []
+    for raw in items or []:
+        try:
+            creator_raw = (raw or {}).get("creator") or {}
+            
+            # Extract pubdate if available
+            pubdate_raw = (raw or {}).get("pubdate")
+            pubdate_str = str(pubdate_raw) if pubdate_raw is not None else None
+            
+            # Extract favorite_id
+            favorite_id_raw = (raw or {}).get("id")
+            favorite_id = str(favorite_id_raw) if favorite_id_raw is not None else None
+            
+            brief = BilibiliVideoBrief(
+                bvid=str((raw or {}).get("bvid")),
+                collection_id=str((raw or {}).get("collection_id")),
+                cover=(raw or {}).get("cover"),
+                title=(raw or {}).get("title") or "",
+                intro=(raw or {}).get("intro") or "",
+                creator=AuthorInfo(
+                    user_id=str(creator_raw.get("user_id")) if creator_raw.get("user_id") is not None else "",
+                    username=creator_raw.get("username") or "",
+                    avatar=creator_raw.get("avatar") or "",
+                ),
+                fav_time=str((raw or {}).get("fav_time") or "0"),
+                favorite_id=favorite_id,
+                pubdate=pubdate_str,
+            )
+            db_item = await _sync_single_bilibili_video_brief(db, video_brief=brief)
+            ingested.append(db_item)
+        except Exception as e:
+            logger.exception("Failed to ingest video brief from plugin event: %s", raw)
+    return ingested
+
+
+# ============================================================================
+# Xiaohongshu Sync Functions
+# ============================================================================
+
+async def _sync_single_xiaohongshu_note_brief(db: AsyncSession, *, note_brief: XiaohongshuNoteBrief) -> models.FavoriteItem:
+    """
+    Syncs a Xiaohongshu note with brief info. Creates a FavoriteItem entry
+    without detailed information. Idempotent.
+    """
+    # Check if the item already exists
+    db_item = await crud_favorites.favorite_item.get_by_platform_item_id(db, platform_item_id=note_brief.note_id)
+    if db_item:
+        return db_item
+
+    # Ensure author exists
+    author_info = note_brief.author_info
+    db_author = await crud_favorites.author.get_by_platform_id(
+        db, platform="xiaohongshu", platform_user_id=author_info.user_id
+    )
+    if not db_author:
+        author_in = schemas.AuthorCreate(
+            platform_user_id=author_info.user_id,
+            platform="xiaohongshu",
+            username=author_info.username,
+            avatar_url=author_info.avatar,
+        )
+        db_author = await crud_favorites.author.create(db, obj_in=author_in)
+
+    # Find collection if specified
+    db_collection = None
+    if note_brief.collection_id:
+        db_collection = await crud_favorites.collection.get_by_platform_id(
+            db, platform="xiaohongshu", platform_collection_id=note_brief.collection_id
+        )
+
+    # Parse favorited_at
+    favorited_at = datetime.utcnow()
+    if note_brief.fav_time:
+        try:
+            favorited_at = datetime.fromtimestamp(int(note_brief.fav_time))
+        except (ValueError, TypeError):
+            pass
+
+    # Create FavoriteItem
+    item_in = schemas.FavoriteItemCreate(
+        platform_item_id=note_brief.note_id,
+        platform="xiaohongshu",
+        item_type="note",
+        title=note_brief.title,
+        intro="",  # Brief doesn't have description
+        cover_url=note_brief.cover_image,
+        favorited_at=favorited_at,
+        published_at=None,  # Will be filled in details
+    )
+
+    item_dict = item_in.dict()
+    db_item = models.FavoriteItem(
+        **item_dict,
+        author_id=db_author.id,
+        collection_id=note_brief.collection_id if note_brief.collection_id else None,
+    )
+
+    db.add(db_item)
+    await db.commit()
+    await db.refresh(db_item)
+
+    # Fetch with all relations loaded
+    refetched_item = await crud_favorites.favorite_item.get_full(db, id=db_item.id)
+    return refetched_item
+
+
+async def _update_single_xiaohongshu_note_details(db: AsyncSession, *, note_details: XiaohongshuNoteDetails) -> models.FavoriteItem:
+    """
+    Updates an existing FavoriteItem with detailed information for Xiaohongshu note.
+    """
+    db_item = await crud_favorites.favorite_item.get_by_platform_item_id(db, platform_item_id=note_details.note_id)
+    if not db_item:
+        raise ValueError(f"FavoriteItem with note_id {note_details.note_id} not found. Sync brief info first.")
+
+    # Update basic info
+    db_item.title = note_details.title
+    db_item.intro = note_details.desc
+
+    # Try to parse published_date
+    try:
+        if note_details.published_date:
+            # Assuming published_date is a timestamp string
+            db_item.published_at = datetime.fromisoformat(note_details.published_date.replace('Z', '+00:00'))
+    except (ValueError, TypeError):
+        pass
+
+    # Update tags
+    db_tags = await crud_favorites.tag.get_or_create_many(db, tag_names=note_details.tags)
+    db_item.tags.clear()
+    db_item.tags.extend(db_tags)
+
+    # Create or Update XiaohongshuNoteDetail
+    detail_model = db_item.xiaohongshu_note_details
+    if not detail_model:
+        detail_model = models.XiaohongshuNoteDetail(favorite_item_id=db_item.id)
+        db.add(detail_model)
+        await db.flush()  # Get detail_model.id before creating nested objects
+    else:
+        # Ensure nested relationships are loaded
+        await db.refresh(detail_model, ['images', 'video'])
+
+    # Update detail fields
+    detail_model.note_id = note_details.note_id
+    detail_model.xsec_token = note_details.xsec_token
+    detail_model.desc = note_details.desc
+    detail_model.ip_location = note_details.ip_location
+    detail_model.published_date = note_details.published_date
+    detail_model.like_count = note_details.statistic.like_count
+    detail_model.collect_count = note_details.statistic.collect_count
+    detail_model.comment_count = note_details.statistic.comment_count
+    detail_model.share_count = note_details.statistic.share_count
+    detail_model.fetched_timestamp = note_details.timestamp
+
+    # Handle images
+    if note_details.images:
+        # Delete existing images
+        await db.execute(
+            sql_delete(models.XiaohongshuNoteImage).where(
+                models.XiaohongshuNoteImage.note_detail_id == detail_model.id
+            )
+        )
+        await db.flush()
+
+        # Add new images
+        for idx, image_url in enumerate(note_details.images):
+            new_image = models.XiaohongshuNoteImage(
+                image_url=image_url,
+                order_index=idx,
+                note_detail_id=detail_model.id
+            )
+            db.add(new_image)
+
+    # Handle video
+    if note_details.video:
+        # Delete existing video
+        await db.execute(
+            sql_delete(models.XiaohongshuNoteVideo).where(
+                models.XiaohongshuNoteVideo.note_detail_id == detail_model.id
+            )
+        )
+        await db.flush()
+
+        # Create new video
+        new_video = models.XiaohongshuNoteVideo(
+            video_url=note_details.video.video_url,
+            duration=note_details.video.duration,
+            width=note_details.video.width,
+            height=note_details.video.height,
+            thumbnail_url=note_details.video.thumbnail_url,
+            note_detail_id=detail_model.id
+        )
+        db.add(new_video)
+
+    db.add(db_item)
+    await db.commit()
+    await db.refresh(db_item)
+    return db_item
+
+
+async def sync_xiaohongshu_collections_list(db: AsyncSession, *, max_collections: Optional[int] = None) -> List[schemas.Collection]:
+    """
+    API Service: Fetches and syncs the list of all Xiaohongshu collections.
+    """
+    from app.core.config import settings
+
+    client = EAIRPCClient(base_url=settings.EAI_BASE_URL, api_key=settings.EAI_API_KEY)
+    collections_synced = []
+    try:
+        await client.start()
+        service_params = ServiceParams(need_raw_data=True, max_items=max_collections)
+        results = await client.get_collection_list_from_xiaohongshu(
+            task_params=TaskParams(
+                cookie_ids=getattr(settings, 'XIAOHONGSHU_COOKIE_IDS', []),
+                close_page_when_task_finished=True
+            ),
+            service_params=service_params,
+        )
+
+        if not results.get("success"):
+            raise RuntimeError(f"Failed to fetch Xiaohongshu collection list: {results.get('error')}")
+
+        for collection_raw in results.get("data", []):
+            creator_raw = collection_raw.get("creator", {})
+            collection_item = CollectionItem(
+                id=str(collection_raw.get("id")),
+                title=collection_raw.get("title"),
+                cover=collection_raw.get("cover"),
+                description=collection_raw.get("description"),
+                item_count=collection_raw.get("item_count", 0),
+                creator=AuthorInfo(
+                    user_id=str(creator_raw.get("user_id")),
+                    username=creator_raw.get("username"),
+                    avatar=creator_raw.get("avatar")
+                )
+            )
+
+            # Sync using generic collection sync (platform-agnostic)
+            db_collection = await crud_favorites.collection.get_by_platform_id(
+                db, platform="xiaohongshu", platform_collection_id=collection_item.id
+            )
+            if not db_collection:
+                # Create author first
+                db_author = await crud_favorites.author.get_by_platform_id(
+                    db, platform="xiaohongshu", platform_user_id=creator_raw.get("user_id")
+                )
+                if not db_author:
+                    author_in = schemas.AuthorCreate(
+                        platform_user_id=str(creator_raw.get("user_id")),
+                        platform="xiaohongshu",
+                        username=creator_raw.get("username"),
+                        avatar_url=creator_raw.get("avatar"),
+                    )
+                    db_author = await crud_favorites.author.create(db, obj_in=author_in)
+
+                # Create collection
+                collection_in = schemas.CollectionCreate(
+                    platform_collection_id=collection_item.id,
+                    platform="xiaohongshu",
+                    title=collection_item.title,
+                    description=collection_item.description,
+                    cover_url=collection_item.cover,
+                    item_count=collection_item.item_count,
+                )
+                collection_dict = collection_in.dict(exclude={'author_id'})
+                db_collection = models.Collection(**collection_dict, author_id=db_author.id)
+                db.add(db_collection)
+                await db.commit()
+                await db.refresh(db_collection)
+
+            collections_synced.append(db_collection)
+    except Exception as e:
+        logger.error(f"Failed to sync Xiaohongshu collections: {e}", exc_info=True)
+    finally:
+        await client.stop()
+
+    return [_to_collection_schema(c) for c in collections_synced]
+
+
+async def sync_notes_in_xiaohongshu_collection(db: AsyncSession, *, platform_collection_id: str, max_notes: Optional[int] = None) -> List[schemas.FavoriteItem]:
+    """
+    API Service: Fetches and syncs brief note info for a specific Xiaohongshu collection.
+    """
+    from app.core.config import settings
+
+    db_collection = await crud_favorites.collection.get_by_platform_id(
+        db, platform="xiaohongshu", platform_collection_id=platform_collection_id
+    )
+    if not db_collection:
+        raise ValueError(f"Collection with platform_id {platform_collection_id} not found.")
+
+    client = EAIRPCClient(base_url=settings.EAI_BASE_URL, api_key=settings.EAI_API_KEY)
+    notes_synced = []
+    try:
+        await client.start()
+        service_params = ServiceParams(need_raw_data=True, max_items=max_notes)
+        results = await client.get_collection_favorite_items_from_xiaohongshu(
+            task_params=TaskParams(
+                cookie_ids=getattr(settings, 'XIAOHONGSHU_COOKIE_IDS', []),
+                close_page_when_task_finished=True
+            ),
+            service_params=service_params,
+            collection_id=platform_collection_id,
+        )
+
+        if not results.get("success"):
+            raise RuntimeError(f"Failed to fetch notes for collection {platform_collection_id}: {results.get('error')}")
+
+        raw_data = results.get("data", [])
+        if isinstance(raw_data, dict):
+            note_list = raw_data.get("data", [])
+        else:
+            note_list = raw_data
+
+        for note_raw in note_list:
+            author_raw = note_raw.get("author_info", {})
+            stat_raw = note_raw.get("statistic", {})
+
+            note_brief = XiaohongshuNoteBrief(
+                note_id=str(note_raw.get("id")),
+                xsec_token=note_raw.get("xsec_token", ""),
+                title=note_raw.get("title", ""),
+                author_info=AuthorInfo(
+                    user_id=str(author_raw.get("user_id")),
+                    username=author_raw.get("username", ""),
+                    avatar=author_raw.get("avatar", "")
+                ),
+                statistic=NoteStatistics(
+                    like_count=stat_raw.get("like_count", 0),
+                    collect_count=stat_raw.get("collect_count", 0),
+                    comment_count=stat_raw.get("comment_count", 0),
+                    share_count=stat_raw.get("share_count", 0),
+                ),
+                cover_image=note_raw.get("cover_image", ""),
+                collection_id=platform_collection_id,
+                fav_time=str(note_raw.get("fav_time", "")),
+            )
+
+            db_item = await _sync_single_xiaohongshu_note_brief(db, note_brief=note_brief)
+            notes_synced.append(db_item)
+    except Exception as e:
+        logger.error(f"Failed to sync Xiaohongshu notes: {e}", exc_info=True)
+    finally:
+        await client.stop()
+
+    return [await _to_favorite_schema_async(db, n) for n in notes_synced]
+
+
+async def sync_xiaohongshu_note_details_single(
+    db: AsyncSession,
+    *,
+    note_id: str,
+    xsec_token: str,
+    max_retry_attempts: int = 5
+) -> Optional[models.FavoriteItem]:
+    """
+    Fetch details for a single Xiaohongshu note with retry support.
+
+    Args:
+        db: Database session
+        note_id: Note ID
+        xsec_token: Note's xsec_token
+        max_retry_attempts: Maximum number of retry attempts (default: 5)
+
+    Returns:
+        Updated FavoriteItem or None if failed
+    """
+    from app.core.config import settings
+
+    db_item = await crud_favorites.favorite_item.get_by_platform_item_id(db, platform_item_id=note_id)
+    if not db_item:
+        logger.warning(f"Note {note_id} not found in DB")
+        return None
+
+    # Check if we've exceeded retry attempts
+    if db_item.details_fetch_attempts >= max_retry_attempts:
+        logger.warning(f"Note {note_id} has exceeded max retry attempts ({max_retry_attempts})")
+        return None
+
+    client = EAIRPCClient(base_url=settings.EAI_BASE_URL, api_key=settings.EAI_API_KEY)
+    try:
+        await client.start()
+
+        # Update attempt counter
+        db_item.details_fetch_attempts = (db_item.details_fetch_attempts or 0) + 1
+        db_item.details_last_attempt_at = datetime.utcnow()
+        await db.commit()
+
+        # Fetch details from Xiaohongshu
+        results = await client.get_note_details_from_xiaohongshu(
+            note_id=note_id,
+            xsec_token=xsec_token,
+            wait_time_sec=3,
+            task_params=TaskParams(
+                cookie_ids=settings.XIAOHONGSHU_COOKIE_IDS,
+                close_page_when_task_finished=True
+            ),
+            service_params=ServiceParams(need_raw_data=True),
+            rpc_timeout_sec=120
+        )
+
+        if not results.get("success"):
+            error_msg = results.get("error", "Unknown error")
+            logger.warning(f"Failed to fetch details for note {note_id}: {error_msg}")
+            db_item.details_fetch_error = error_msg
+            await db.commit()
+            return None
+
+        details_data = results.get("data", {})
+        if not details_data:
+            logger.warning(f"Empty details data for note {note_id}")
+            db_item.details_fetch_error = "Empty response data"
+            await db.commit()
+            return None
+
+        # Parse response data
+        author_raw = details_data.get("author_info", {})
+        stat_raw = details_data.get("statistic", {})
+        video_raw = details_data.get("video")
+
+        video_info = None
+        if video_raw:
+            video_info = VideoInfo(
+                video_url=video_raw.get("src"),  # Use 'src' according to API format
+                duration=video_raw.get("duration_sec"),
+                width=None,  # Not in the provided format
+                height=None,
+                thumbnail_url=None
+            )
+
+        note_details = XiaohongshuNoteDetails(
+            note_id=str(details_data.get("id")),
+            xsec_token=details_data.get("xsec_token", ""),
+            title=details_data.get("title", ""),
+            desc=details_data.get("desc", ""),
+            author_info=AuthorInfo(
+                user_id=str(author_raw.get("user_id")),
+                username=author_raw.get("username", ""),
+                avatar=author_raw.get("avatar", "")
+            ),
+            tags=details_data.get("tags", []),
+            published_date=details_data.get("date", ""),
+            ip_location=details_data.get("ip_zh", ""),
+            comment_num=details_data.get("comment_num", "0"),
+            statistic=NoteStatistics(
+                like_count=int(stat_raw.get("like_num", 0)) if stat_raw.get("like_num") else 0,
+                collect_count=int(stat_raw.get("collect_num", 0)) if stat_raw.get("collect_num") else 0,
+                comment_count=int(stat_raw.get("chat_num", 0)) if stat_raw.get("chat_num") else 0,
+                share_count=0,  # Not in the provided format
+            ),
+            images=details_data.get("images", []),
+            video=video_info,
+            timestamp=details_data.get("timestamp"),
+        )
+
+        # Update database with details
+        updated_item = await _update_single_xiaohongshu_note_details(db, note_details=note_details)
+
+        # Clear error fields on success
+        updated_item.details_fetch_error = None
+        await db.commit()
+
+        logger.info(f"Successfully fetched details for note {note_id}")
+        return updated_item
+
+    except Exception as e:
+        logger.error(f"Exception fetching details for note {note_id}: {e}", exc_info=True)
+        db_item.details_fetch_error = str(e)
+        await db.commit()
+        return None
+    finally:
+        await client.stop()
+
+
+async def sync_xiaohongshu_notes_details(db: AsyncSession, *, note_ids: List[str]) -> List[schemas.FavoriteItem]:
+    """
+    API Service: Fetches and syncs detailed info for a list of Xiaohongshu note IDs.
+    Uses the new single-note fetcher with retry support.
+    """
+    notes_updated = []
+
+    for note_id in note_ids:
+        db_item = await crud_favorites.favorite_item.get_by_platform_item_id(db, platform_item_id=note_id)
+        if not db_item:
+            logger.warning(f"Skipping details for note_id {note_id} as it's not in DB.")
+            continue
+
+        # Get xsec_token from db_item or xiaohongshu_note_details
+        xsec_token = ""
+        if hasattr(db_item, 'xiaohongshu_note_details') and db_item.xiaohongshu_note_details:
+            xsec_token = db_item.xiaohongshu_note_details.xsec_token or ""
+
+        updated_item = await sync_xiaohongshu_note_details_single(
+            db,
+            note_id=note_id,
+            xsec_token=xsec_token
+        )
+
+        if updated_item:
+            notes_updated.append(updated_item)
+
+    return [await _to_favorite_schema_async(db, n) for n in notes_updated]

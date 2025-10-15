@@ -18,6 +18,12 @@ useHead({
   bodyAttrs: {
     class: 'min-h-screen antialiased',
   },
+  meta: [
+    {
+      name: 'referrer',
+      content: 'no-referrer',
+    },
+  ],
 })
 </script>
 
@@ -26,6 +32,8 @@ useHead({
     <NuxtLayout>
       <NuxtPage />
     </NuxtLayout>
-    <Toaster />
+    <ClientOnly>
+      <Toaster />
+    </ClientOnly>
   </div>
 </template>

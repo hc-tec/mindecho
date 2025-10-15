@@ -8,20 +8,24 @@ import DashboardWorkshopsMatrix from '@/components/dashboard/WorkshopsMatrix.vue
 import DashboardRecentOutputs from '@/components/dashboard/RecentOutputs.vue'
 import DashboardQuickActions from '@/components/dashboard/QuickActions.vue'
 import DashboardTrendSpotting from '@/components/dashboard/TrendSpotting.vue'
+import { useCollectionsStore } from '@/stores/collections'
 
 const dashboardStore = useDashboardStore()
+const collectionsStore = useCollectionsStore()
 
 // Fetch dashboard data on mount
 onMounted(() => {
   dashboardStore.fetchDashboard()
 })
 
-// Auto-refresh every 60 seconds
+// Auto-refresh every 20 seconds (polling instead of websocket)
 const refreshInterval = ref<number>()
 onMounted(() => {
   refreshInterval.value = setInterval(() => {
+    // poll dashboard and collections
     dashboardStore.refreshDashboard()
-  }, 60000) as unknown as number
+    collectionsStore.fetchCollections()
+  }, 20000) as unknown as number
 })
 
 onUnmounted(() => {

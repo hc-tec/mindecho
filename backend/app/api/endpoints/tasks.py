@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from sqlalchemy import func, select, delete
 from sqlalchemy.orm import selectinload
 
@@ -29,6 +29,28 @@ async def get_global_task_status(db: AsyncSession = Depends(deps.get_db)):
     pending = pending_result.scalar_one()
     in_progress = in_progress_result.scalar_one()
     return {"in_progress": in_progress, "pending": pending, "total": in_progress + pending}
+
+
+class TaskListResponse(BaseModel):
+    total: int
+    items: List[Task]
+
+
+@router.get("", response_model=TaskListResponse)
+async def list_tasks(
+    db: AsyncSession = Depends(deps.get_db),
+    status: Optional[str] = None,
+    page: int = 1,
+    size: int = 20,
+):
+    """Paginated task list for polling on the frontend."""
+    query = select(TaskModel).order_by(TaskModel.id.desc())
+    if status in {"pending", "in_progress", "success", "failure"}:
+        query = query.where(TaskModel.status == status)
+    total = (await db.execute(select(func.count(TaskModel.id)))).scalar_one()
+    result = await db.execute(query.offset((page - 1) * size).limit(size))
+    tasks = result.scalars().all()
+    return {"total": total, "items": tasks}
 
 @router.get("/{task_id}", response_model=Task)
 async def read_task_status(

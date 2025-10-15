@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Pagination, PaginationEllipsis, PaginationFirst, PaginationLast, PaginationItem, PaginationNext, PaginationPrev } from '@/components/ui/pagination'
+import { Pagination, PaginationContent, PaginationEllipsis, PaginationFirst, PaginationLast, PaginationItem, PaginationNext, PaginationPrev } from '@/components/ui/pagination'
 import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { format } from 'date-fns'
@@ -82,10 +82,15 @@ const getSortIcon = (column: string) => {
                 </TableRow>
               </template>
               <template v-else-if="store.items.length > 0">
-                <TableRow v-for="item in store.items" :key="item.id">
+                <TableRow 
+                  v-for="item in store.items" 
+                  :key="item.id"
+                  class="cursor-pointer hover:bg-muted/50"
+                  @click="$router.push(`/workshops/summary-01?item=${item.id}`)"
+                >
                   <TableCell class="font-medium">{{ item.title }}</TableCell>
                   <TableCell class="capitalize">{{ item.platform }}</TableCell>
-                  <TableCell>{{ item.author_name }}</TableCell>
+                  <TableCell>{{ item.author?.username || 'N/A' }}</TableCell>
                   <TableCell>
                     <Badge v-for="tag in item.tags" :key="tag.id" variant="secondary" class="mr-1">{{ tag.name }}</Badge>
                   </TableCell>
@@ -107,14 +112,16 @@ const getSortIcon = (column: string) => {
           <Pagination v-if="totalPages > 1" :total="store.total" :page="store.currentPage" @update:page="store.setPage" :items-per-page="store.itemsPerPage" show-edges class="mx-auto">
             <PaginationFirst />
             <PaginationPrev />
-            <template v-for="(page, index) in pages">
-              <PaginationItem v-if="page.type === 'page'" :key="index" :value="page.value" as-child>
-                <Button class="w-10 h-10 p-0" :variant="page.value === store.currentPage ? 'default' : 'outline'">
-                  {{ page.value }}
-                </Button>
-              </PaginationItem>
-              <PaginationEllipsis v-else :key="page.type" :index="index" />
-            </template>
+            <PaginationContent v-slot="{ items }">
+              <template v-for="(item, index) in items" :key="index">
+                <PaginationItem v-if="item.type === 'page'" :value="item.value" :is-active="item.value === store.currentPage" as-child>
+                  <Button class="w-10 h-10 p-0">
+                    {{ item.value }}
+                  </Button>
+                </PaginationItem>
+                <PaginationEllipsis v-else :index="index" />
+              </template>
+            </PaginationContent>
             <PaginationNext />
             <PaginationLast />
           </Pagination>

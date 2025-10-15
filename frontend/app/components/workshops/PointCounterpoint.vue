@@ -8,8 +8,7 @@ import { useWorkshopsStore } from '@/stores/workshops'
 import type { Workshop } from '@/types/api'
 
 const props = defineProps<{
-  workshopInfo: Workshop
-  workshop?: Workshop
+  workshop: Workshop
 }>()
 
 // Store and State Management
@@ -39,7 +38,7 @@ const counterpoints = computed(() => {
 
 const handleExecute = async () => {
     if (!coreArgumentText.value.trim()) return
-    const currentId = (props.workshop?.workshop_id) || (props.workshop?.id) || (props.workshopInfo?.workshop_id) || (props.workshopInfo?.id)
+    const currentId = (props.workshop as any).workshop_id || (props.workshop as any).id
     if (!currentId) return
     const newTaskId = await workshopsStore.executeWorkshop(
         currentId,
@@ -56,8 +55,8 @@ const handleExecute = async () => {
 <template>
   <div>
     <header class="p-4 border-b border-border bg-muted/50">
-      <h2 class="text-2xl font-bold tracking-tight">{{ workshopInfo.name }}</h2>
-      <p class="text-muted-foreground">{{ workshopInfo.description }}</p>
+      <h2 class="text-2xl font-bold tracking-tight">{{ workshop.name }}</h2>
+      <p class="text-muted-foreground">{{ workshop.description }}</p>
     </header>
     
     <div class="flex-1 grid grid-cols-1 md:grid-cols-3 gap-px bg-border overflow-hidden">

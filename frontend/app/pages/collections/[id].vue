@@ -51,23 +51,34 @@ const getTaskForWorkshop = (workshopId: string) => {
           <CardTitle>{{ item.title }}</CardTitle>
         </CardHeader>
         <CardContent class="space-y-4">
-          <p class="text-sm text-muted-foreground">{{ item.description }}</p>
+          <p class="text-sm text-muted-foreground">{{ item.intro || item.description }}</p>
           <div class="flex items-center gap-2">
             <User class="w-4 h-4" />
-            <span class="text-sm font-medium">{{ item.author_name }}</span>
+            <span class="text-sm font-medium">{{ item.author?.username || 'N/A' }}</span>
           </div>
           <div class="flex items-center gap-2">
             <Clock class="w-4 h-4" />
             <span class="text-sm">{{ format(new Date(item.favorited_at), 'yyyy-MM-dd HH:mm') }}</span>
           </div>
-          <div class="flex items-center gap-2">
+          <div v-if="item.platform === 'bilibili'" class="flex items-center gap-2">
             <Link class="w-4 h-4" />
-            <a :href="item.url" target="_blank" class="text-sm text-primary hover:underline">
-              Go to source
+            <a :href="`https://www.bilibili.com/video/${item.platform_item_id}`" target="_blank" class="text-sm text-primary hover:underline">
+              在B站查看
             </a>
           </div>
           <div class="flex flex-wrap gap-2">
             <Badge v-for="tag in item.tags" :key="tag.id" variant="secondary">{{ tag.name }}</Badge>
+          </div>
+          
+          <div class="pt-4 border-t">
+            <Button 
+              class="w-full" 
+              variant="outline"
+              @click="$router.push(`/workshops/summary-01?item=${item.id}`)"
+            >
+              <Sparkles class="w-4 h-4 mr-2" />
+              在工作坊中查看
+            </Button>
           </div>
         </CardContent>
       </Card>

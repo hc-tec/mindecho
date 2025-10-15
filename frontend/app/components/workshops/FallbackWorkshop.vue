@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { Workshop } from '@/types/api'
 
 defineProps<{
-  workshopInfo?: Workshop
+  workshop?: Workshop
 }>()
 </script>
 
@@ -25,8 +25,8 @@ defineProps<{
           <CardTitle>Fehler beim Laden der Komponente</CardTitle>
         </CardHeader>
         <CardContent>
-          <p v-if="workshopInfo">
-            Das Workshop mit der ID <strong>{{ workshopInfo.workshop_id }}</strong> ist zwar konfiguriert, aber die zugehörige Frontend-Komponente konnte nicht gefunden werden.
+          <p v-if="workshop">
+            Das Workshop mit der ID <strong>{{ workshop.workshop_id }}</strong> ist zwar konfiguriert, aber die zugehörige Frontend-Komponente konnte nicht gefunden werden.
           </p>
           <p v-else>
             Es konnte kein Workshop mit der in der URL angegebenen ID gefunden werden.

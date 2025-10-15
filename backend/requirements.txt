@@ -9,3 +9,4 @@ aiosqlite
 pytest
 pytest-asyncio
 httpx
+huey[sqlitedb]==2.5.3

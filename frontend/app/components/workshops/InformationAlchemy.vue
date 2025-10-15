@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -8,11 +9,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { useCollectionsStore } from '@/stores/collections'
 import { useWorkshopsStore } from '@/stores/workshops'
 import type { Workshop, FavoriteItem } from '@/types/api'
+import { api } from '@/lib/api'
 
 const props = defineProps<{
-  workshopInfo: Workshop
-  workshop?: Workshop
+  workshop: Workshop
 }>()
+
+const route = useRoute()
+const router = useRouter()
 
 // Store and State Management
 const collectionsStore = useCollectionsStore()
@@ -43,17 +47,48 @@ const taskStatus = computed(() => {
     return workshopsStore.tasks[taskId.value]?.status || 'pending'
 })
 
-onMounted(() => {
-  collectionsStore.fetchCollections()
+onMounted(async () => {
+  await collectionsStore.fetchCollections()
+  
+  // Initialize from URL query if present
+  const itemId = route.query.item ? parseInt(route.query.item as string) : null
+  if (itemId) {
+    try {
+      const item = await api.get(`/collections/${itemId}`)
+      selectedCollection.value = item
+    } catch (error) {
+      console.error('Failed to load item from URL:', error)
+    }
+  }
 })
 
 const handleSelectCollection = (collection: FavoriteItem) => {
   selectedCollection.value = collection
+  // Update URL
+  router.replace({ query: { item: collection.id.toString() } })
 }
+
+// Watch for URL query changes
+watch(
+  () => route.query.item,
+  async (itemQuery) => {
+    const itemId = itemQuery ? parseInt(itemQuery as string) : null
+    if (itemId && (!selectedCollection.value || selectedCollection.value.id !== itemId)) {
+      try {
+        const item = await api.get(`/collections/${itemId}`)
+        selectedCollection.value = item
+      } catch (error) {
+        console.error('Failed to load item from URL:', error)
+      }
+    } else if (!itemId) {
+      selectedCollection.value = null
+    }
+  }
+)
 
 const handleExecute = async () => {
     if (!selectedCollection.value) return
-    const currentId = (props.workshop?.workshop_id) || (props.workshop?.id) || (props.workshopInfo?.workshop_id) || (props.workshopInfo?.id)
+    const currentId = (props.workshop as any).workshop_id || (props.workshop as any).id
     if (!currentId) return
     const newTaskId = await workshopsStore.executeWorkshop(
         currentId,
@@ -78,8 +113,8 @@ const getInsightConfig = (type: string) => insightConfig[type] || insightConfig.
 <template>
   <div>
     <header class="p-4 border-b border-border bg-muted/50">
-      <h2 class="text-2xl font-bold tracking-tight">{{ workshopInfo.name }}</h2>
-      <p class="text-muted-foreground">{{ workshopInfo.description }}</p>
+      <h2 class="text-2xl font-bold tracking-tight">{{ workshop.name }}</h2>
+      <p class="text-muted-foreground">{{ workshop.description }}</p>
     </header>
     
     <div class="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-px bg-border overflow-hidden">
@@ -100,7 +135,7 @@ const getInsightConfig = (type: string) => insightConfig[type] || insightConfig.
                   <Card @click="handleSelectCollection(item)" class="cursor-pointer hover:bg-muted">
                     <CardContent class="p-3">
                       <p class="font-medium text-sm">{{ item.title }}</p>
-                      <p class="text-xs text-muted-foreground capitalize">{{ item.platform }} - {{ item.author_name }}</p>
+                      <p class="text-xs text-muted-foreground capitalize">{{ item.platform }} - {{ item.author?.username || '' }}</p>
                     </CardContent>
                   </Card>
                 </DialogClose>

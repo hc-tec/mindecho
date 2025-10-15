@@ -5,7 +5,9 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Archive, Trash2, Inbox, Loader2 } from 'lucide-vue-next'
+import { Trash2, Inbox, Loader2 } from 'lucide-vue-next'
+import { Badge } from '@/components/ui/badge'
+import { BilibiliImage } from '@/components/ui/bilibili-image'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
@@ -32,11 +34,6 @@ const formatRelativeTime = (dateString: string) => {
   return formatDistanceToNow(new Date(dateString), { addSuffix: true, locale: zhCN })
 }
 
-const handleArchive = () => {
-  collectionsStore.archiveItems(selectedItems.value)
-  selectedItems.value = []
-}
-
 const handleDelete = () => {
   collectionsStore.deleteItems(selectedItems.value)
   selectedItems.value = []
@@ -58,10 +55,6 @@ const handleDelete = () => {
             :checked="inboxItems && selectedItems.length === inboxItems.length && inboxItems.length > 0" 
             class="mx-2" 
           />
-          <Button variant="outline" size="sm" @click="handleArchive" :disabled="selectedItems.length === 0">
-            <Archive class="w-4 h-4 mr-2" />
-            归档
-          </Button>
           <Button variant="outline" size="sm" @click="handleDelete" :disabled="selectedItems.length === 0">
             <Trash2 class="w-4 h-4 mr-2" />
             删除
@@ -81,24 +74,40 @@ const handleDelete = () => {
                 v-for="item in inboxItems"
                 :key="item.id"
                 :class="[
-                  'flex items-start gap-4 p-4 cursor-pointer transition-colors',
+                  'flex items-start gap-4 p-4 transition-colors group',
                   selectedItems.includes(item.id) ? 'bg-muted' : 'hover:bg-muted/50',
                 ]"
-                @click="() => {
-                  if (selectedItems.includes(item.id)) {
-                    selectedItems = selectedItems.filter(id => id !== item.id)
-                  } else {
-                    selectedItems.push(item.id)
-                  }
-                }"
               >
-                <Checkbox :checked="selectedItems.includes(item.id)" class="mt-1" />
-                <div class="flex-1">
-                  <div class="flex items-center justify-between">
-                    <span class="font-semibold text-sm capitalize">{{ item.platform }} Sync</span>
-                    <span class="text-xs text-muted-foreground">{{ formatRelativeTime(item.favorited_at) }}</span>
+                <Checkbox 
+                  :checked="selectedItems.includes(item.id)" 
+                  class="mt-1"
+                  @click.stop="() => {
+                    if (selectedItems.includes(item.id)) {
+                      selectedItems = selectedItems.filter(id => id !== item.id)
+                    } else {
+                      selectedItems.push(item.id)
+                    }
+                  }"
+                />
+                <BilibiliImage 
+                  :src="item.cover_url" 
+                  :alt="item.title" 
+                  img-class="w-24 h-16 object-cover rounded cursor-pointer shrink-0"
+                  @click="$router.push(`/workshops/summary-01?item=${item.id}`)"
+                />
+                <div class="flex-1 min-w-0 cursor-pointer" @click="$router.push(`/workshops/summary-01?item=${item.id}`)">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium truncate group-hover:text-primary transition-colors">{{ item.title }}</p>
+                      <p v-if="item.intro" class="text-xs text-muted-foreground line-clamp-2 mt-1">{{ item.intro }}</p>
+                    </div>
+                    <span class="text-xs text-muted-foreground shrink-0">{{ formatRelativeTime(item.favorited_at) }}</span>
                   </div>
-                  <p class="text-sm text-foreground truncate">{{ item.title }}</p>
+                  <div class="flex items-center gap-2 mt-2">
+                    <Badge variant="outline" class="text-xs capitalize">{{ item.platform }}</Badge>
+                    <span v-if="item.author?.username" class="text-xs text-muted-foreground">{{ item.author.username }}</span>
+                    <Badge v-if="item.status" :variant="item.status === 'processed' ? 'default' : 'secondary'" class="text-xs">{{ item.status }}</Badge>
+                  </div>
                 </div>
               </div>
             </div>

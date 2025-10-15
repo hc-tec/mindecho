@@ -169,6 +169,12 @@ class AuthorCreate(AuthorBase):
 class CollectionCreate(CollectionBase):
     author_id: Optional[int] = None
 
+class CollectionUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    cover_url: Optional[str] = None
+    item_count: Optional[int] = None
+
 class BilibiliVideoDetailCreate(BilibiliVideoDetailBase):
     video_url: Optional[BilibiliVideoUrlCreate] = None
     audio_url: Optional[BilibiliAudioUrlCreate] = None
@@ -223,6 +229,63 @@ class BilibiliVideoDetail(BilibiliVideoDetailBase):
     class Config:
         orm_mode = True
 
+
+# ============================================================================
+# Xiaohongshu Schemas
+# ============================================================================
+
+class XiaohongshuNoteImageBase(BaseModel):
+    image_url: str
+    order_index: int = 0
+
+class XiaohongshuNoteImageCreate(XiaohongshuNoteImageBase):
+    pass
+
+class XiaohongshuNoteImage(XiaohongshuNoteImageBase):
+    id: int
+    class Config:
+        orm_mode = True
+
+
+class XiaohongshuNoteVideoBase(BaseModel):
+    video_url: Optional[str] = None
+    duration: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    thumbnail_url: Optional[str] = None
+
+class XiaohongshuNoteVideoCreate(XiaohongshuNoteVideoBase):
+    pass
+
+class XiaohongshuNoteVideo(XiaohongshuNoteVideoBase):
+    id: int
+    class Config:
+        orm_mode = True
+
+
+class XiaohongshuNoteDetailBase(BaseModel):
+    note_id: str
+    xsec_token: Optional[str] = None
+    desc: Optional[str] = None
+    ip_location: Optional[str] = None
+    published_date: Optional[str] = None
+    like_count: Optional[int] = None
+    collect_count: Optional[int] = None
+    comment_count: Optional[int] = None
+    share_count: Optional[int] = None
+    fetched_timestamp: Optional[str] = None
+
+class XiaohongshuNoteDetailCreate(XiaohongshuNoteDetailBase):
+    images: List[XiaohongshuNoteImageCreate] = []
+    video: Optional[XiaohongshuNoteVideoCreate] = None
+
+class XiaohongshuNoteDetail(XiaohongshuNoteDetailBase):
+    id: int
+    images: List[XiaohongshuNoteImage] = []
+    video: Optional[XiaohongshuNoteVideo] = None
+    class Config:
+        orm_mode = True
+
 class FavoriteItem(FavoriteItemBase):
     id: int
     created_at: datetime
@@ -230,6 +293,7 @@ class FavoriteItem(FavoriteItemBase):
     collection: Optional[Collection] = None
     tags: List[Tag] = []
     bilibili_video_details: Optional[BilibiliVideoDetail] = None
+    xiaohongshu_note_details: Optional[XiaohongshuNoteDetail] = None
     results: List[Result] = []
 
     class Config:
