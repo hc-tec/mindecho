@@ -92,8 +92,9 @@ async def run_workshop_task(
                 from app.services.notifications.notification_service import notification_service
 
                 # Create a new task to avoid blocking
+                # Note: Pass result_id and workshop, not db session - background task will create its own session
                 asyncio.create_task(
-                    notification_service.notify_result_created(db, result_obj.id, ws)
+                    notification_service.notify_result_created_async(result_obj.id, ws)
                 )
                 logger.debug(f"Task {_task_id}: Notification triggered for result {result_obj.id}")
             except Exception as notify_error:
