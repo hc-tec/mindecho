@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from app.api.endpoints import (
-    favorites, sync, dashboard, collections, tags, workshops, results, tasks, search, llm, settings as settings_endpoint
+    favorites, sync, dashboard, collections, tags, workshops, results, tasks, search, llm, settings as settings_endpoint, notification_configs
 )
 from app.api.endpoints import streams
 from app.services.stream_manager import stream_manager
@@ -125,6 +125,7 @@ app.include_router(settings_endpoint.router, prefix="/api/v1", tags=["Settings"]
 app.include_router(favorites.router, prefix="/api/v1", tags=["Favorites"])
 app.include_router(sync.router, prefix="/api/v1", tags=["Synchronization"])
 app.include_router(streams.router, prefix="/api/v1", tags=["Streams"])
+app.include_router(notification_configs.router, prefix="/api/v1/notification-configs", tags=["Notification Configs"])
 
 @app.on_event("shutdown")
 async def shutdown_event():

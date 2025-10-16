@@ -40,8 +40,11 @@ import {
   Calendar,
   User,
   Search,
-  XCircle
+  XCircle,
+  Bell
 } from 'lucide-vue-next'
+import WorkshopNotificationConfig from '@/components/workshops/WorkshopNotificationConfig.vue'
+import { useToast } from '@/composables/use-toast'
 
 const props = defineProps<{ workshop: Workshop }>()
 
@@ -49,6 +52,7 @@ const route = useRoute()
 const router = useRouter()
 const workshopsStore = useWorkshopsStore()
 const collectionsStore = useCollectionsStore()
+const { toast } = useToast()
 
 // ============================================================================
 // 收藏项数据（独立管理，获取所有数据）
@@ -265,6 +269,7 @@ const selectedItemDetails = ref<any>(null)
 const promptDialogOpen = ref(false)
 const resultDetailDialogOpen = ref(false)
 const itemDetailDialogOpen = ref(false)  // 新增：收藏项详情弹窗
+const notificationConfigDialogOpen = ref(false)  // 新增：通知配置弹窗
 const selectedResult = ref<any>(null)
 const historyExpanded = ref(false)
 
@@ -433,12 +438,29 @@ const openOriginalUrl = (url?: string) => {
 const saveChanges = async () => {
   saving.value = true
   try {
-    await workshopsStore.updateWorkshop((props.workshop as any).workshop_id || (props.workshop as any).id, {
+    const workshopId = (props.workshop as any).workshop_id || (props.workshop as any).id
+    await workshopsStore.updateWorkshop(workshopId, {
       name: name.value,
       // backend unified fields only
       // @ts-ignore
       default_prompt: systemPrompt.value || userPrompt.value || '',
     } as any)
+
+    // 重新从服务器加载工坊数据以确保本地状态同步
+    await workshopsStore.fetchWorkshopBySlug(workshopId)
+
+    // 显示成功提示
+    toast({
+      title: '保存成功',
+      description: '工坊配置已更新',
+    })
+  } catch (error) {
+    // 显示错误提示
+    toast({
+      title: '保存失败',
+      description: error instanceof Error ? error.message : '未知错误',
+      variant: 'destructive',
+    })
   } finally {
     saving.value = false
   }
@@ -539,6 +561,7 @@ onMounted(async () => {
     <header class="p-4 border-b border-border bg-muted/50 flex items-center justify-between shrink-0">
       <h2 class="text-2xl font-bold tracking-tight">{{ name }}</h2>
       <div class="flex items-center gap-2">
+        <!-- 提示词配置 -->
         <Dialog v-model:open="promptDialogOpen">
         <DialogTrigger as-child>
           <Button size="sm" variant="outline">
@@ -568,6 +591,25 @@ onMounted(async () => {
           </div>
         </DialogContent>
       </Dialog>
+
+        <!-- 通知配置 -->
+        <Dialog v-model:open="notificationConfigDialogOpen">
+          <DialogTrigger as-child>
+            <Button size="sm" variant="outline">
+              <Bell class="w-4 h-4 mr-2" />
+              通知配置
+            </Button>
+          </DialogTrigger>
+          <DialogContent class="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>通知配置</DialogTitle>
+            </DialogHeader>
+            <WorkshopNotificationConfig
+              :workshop-id="(props.workshop as any).workshop_id || (props.workshop as any).id"
+              @saved="notificationConfigDialogOpen = false"
+            />
+          </DialogContent>
+        </Dialog>
       </div>
     </header>
 

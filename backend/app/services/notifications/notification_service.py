@@ -5,12 +5,14 @@ High-level service for triggering notifications from workshop results.
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
+import json
 
 from app.core.logging_config import get_logger
 from app.crud import result as crud_result
+from app.crud.crud_notification_config import crud_notification_config
 from app.db.models import Workshop
 from app.services.notifications.context import NotificationContext
-from app.services.notifications.notifiers import LocalStorageNotifier
+from app.services.notifications.notifiers import LocalStorageNotifier, EmailNotifier
 from app.services.notifications.pipeline import NotificationPipeline, PipelineOrchestrator
 from app.services.notifications.processors import ImageRendererProcessor, TextFormatterProcessor
 from app.services.notifications.registry import register_notifier, register_processor
@@ -33,6 +35,7 @@ class NotificationService:
         Initialize notification system with default plugins.
 
         This should be called once during application startup.
+        Registers all available processors and notifiers.
         """
         if cls._initialized:
             return
@@ -50,6 +53,13 @@ class NotificationService:
         # Register default notifiers
         register_notifier("local_storage", LocalStorageNotifier())
 
+        # Register email notifier (configuration comes from environment variables)
+        try:
+            register_notifier("email", EmailNotifier())
+            logger.info("Email notifier registered successfully")
+        except Exception as e:
+            logger.warning(f"Email notifier registration failed (check SMTP env vars): {e}")
+
         cls._initialized = True
         logger.info("Notification system initialized successfully")
 
@@ -64,6 +74,7 @@ class NotificationService:
         Trigger notifications for a newly created workshop result.
 
         This is the main entry point called by WorkshopService when using an existing session.
+        Now reads configuration from database to determine notification behavior.
 
         Args:
             db: Database session
@@ -85,6 +96,24 @@ class NotificationService:
                 logger.error(f"Result {result_id} has no favorite_item, cannot send notification")
                 return
 
+            # Load notification configuration from database
+            config = await crud_notification_config.get_or_create_default(db, workshop.workshop_id)
+
+            # Check if notifications are enabled for this workshop
+            if not config.enabled:
+                logger.debug(f"Notifications disabled for workshop '{workshop.workshop_id}', skipping")
+                return
+
+            # Parse configuration
+            processors = json.loads(config.processors)
+            notifier_type = config.notifier_type
+            processor_config = json.loads(config.processor_config)
+
+            logger.info(
+                f"Sending notification for result {result_id} "
+                f"(workshop: {workshop.workshop_id}, processors: {processors}, notifier: {notifier_type})"
+            )
+
             # Create notification context
             context = NotificationContext(
                 result_id=result_id,
@@ -93,18 +122,26 @@ class NotificationService:
                 workshop=workshop,
             )
 
-            # Create default pipeline (MVP: text formatter + local storage)
+            # Apply processor configuration to dynamically configure processors
+            # Note: This is a simplified implementation. For full customization,
+            # we would need to instantiate processors with custom parameters.
+            # For now, we use the pre-registered processors.
+
+            # Create pipeline from database config
             pipeline = NotificationPipeline(
-                name="default_local",
-                processor_names=["text_formatter"],
-                notifier_name="local_storage",
+                name=f"config_{workshop.workshop_id}",
+                processor_names=processors,
+                notifier_name=notifier_type,
             )
 
             # Execute pipeline
             result = await pipeline.execute(context, db)
 
             if result.is_success:
-                logger.info(f"Notification sent successfully for result {result_id}")
+                logger.info(
+                    f"Notification sent successfully for result {result_id} "
+                    f"via {notifier_type}"
+                )
             else:
                 logger.warning(
                     f"Notification failed for result {result_id}: {result.error_message}"

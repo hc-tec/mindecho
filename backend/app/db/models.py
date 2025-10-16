@@ -304,6 +304,65 @@ class NotificationStatus(str, enum.Enum):
     RETRYING = "retrying"
 
 
+class WorkshopNotificationConfig(Base):
+    """
+    Per-workshop notification configuration.
+
+    Allows users to customize notification behavior for each workshop:
+    - Enable/disable notifications
+    - Choose which processors to use (text formatting, image rendering)
+    - Choose which notifier to use (local storage, email, etc.)
+    - Configure processor and notifier parameters
+
+    Design Philosophy:
+    - Flexibility: JSON fields allow extensible configuration
+    - Type safety: Core fields are strongly typed
+    - Privacy-first: All defaults use local storage (no external services)
+    - Automation-first: Notifications enabled by default
+    """
+    __tablename__ = "workshop_notification_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workshop_id = Column(String, ForeignKey("workshops.workshop_id"), unique=True, nullable=False, index=True)
+
+    # Basic settings
+    enabled = Column(Integer, default=1, nullable=False)  # SQLite: 1=enabled, 0=disabled
+
+    # Pipeline configuration
+    processors = Column(Text, nullable=False, default='["text_formatter"]')  # JSON array: ["text_formatter", "image_renderer"]
+    notifier_type = Column(String, nullable=False, default="local_storage")  # e.g., "local_storage", "email"
+
+    # Detailed configuration (JSON objects)
+    processor_config = Column(Text, default='{}')  # Processor-specific settings
+    # Example: {
+    #   "text_format": "markdown",        # "markdown", "plain", "html"
+    #   "max_length": null,                # null or positive integer
+    #   "add_header": true,                # boolean
+    #   "add_footer": false,               # boolean
+    #   "render_image": false,             # boolean (enable ImageRendererProcessor)
+    #   "image_style": "minimal_card",     # Image rendering style
+    #   "image_size": "1080x1920"          # Image dimensions
+    # }
+
+    notifier_config = Column(Text, default='{}')  # Notifier-specific settings
+    # Example for local_storage: {
+    #   "output_dir": "./notifications",
+    #   "organize_by_date": true,
+    #   "save_images": true,
+    #   "save_metadata": true
+    # }
+    # Example for email: {
+    #   "subject_template": "MindEcho: {title}"
+    # }
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    # Relationship
+    workshop = relationship("Workshop", lazy="selectin")
+
+
 class NotificationLog(Base):
     """
     Log of notification delivery attempts.

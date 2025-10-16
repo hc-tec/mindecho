@@ -188,3 +188,58 @@ export interface Settings {
   auto_process: boolean
   category_to_workshop?: Record<string, string>
 }
+
+// ============================================================================
+// Notification Config Types
+// ============================================================================
+
+/**
+ * Processor configuration for text formatting and image rendering
+ */
+export interface ProcessorConfig {
+  text_format: 'markdown' | 'plain' | 'html'
+  max_length: number | null
+  add_header: boolean
+  add_footer: boolean
+  render_image: boolean
+  image_style: string
+  image_size: string
+}
+
+/**
+ * Workshop notification configuration
+ */
+export interface NotificationConfig {
+  id: number
+  workshop_id: string
+  enabled: boolean
+  processors: string[]
+  notifier_type: 'local_storage' | 'email'
+  processor_config: ProcessorConfig
+  notifier_config: Record<string, any>
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Request payload for creating notification config
+ */
+export interface NotificationConfigCreate {
+  workshop_id: string
+  enabled: boolean
+  processors: string[]
+  notifier_type: 'local_storage' | 'email'
+  processor_config: ProcessorConfig
+  notifier_config: Record<string, any>
+}
+
+/**
+ * Request payload for updating notification config
+ */
+export interface NotificationConfigUpdate {
+  enabled?: boolean
+  processors?: string[]
+  notifier_type?: 'local_storage' | 'email'
+  processor_config?: ProcessorConfig
+  notifier_config?: Record<string, any>
+}
