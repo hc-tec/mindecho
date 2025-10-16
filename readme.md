@@ -1,284 +1,552 @@
-## MindEcho 后端（功能说明）
+# MindEcho（思维回响）
 
-MindEcho 是一个面向“跨平台收藏与 AI 助理”的聚合与加工系统。后端基于 FastAPI 构建，负责：
+<div align="center">
 
-- 聚合外部平台（目前以 B 站为主）的收藏夹与内容元数据
-- 管理收藏条目、标签、集合与作者信息
-- 触发并跟踪 AI 工作坊（Workshop）任务，生成洞察/摘要等结果
-- 提供全局搜索、仪表盘汇总、设置管理和 LLM 代理访问
+**让收藏不再沉默，让知识产生回响**
 
-### 核心业务优先级（自动触发）
-- 当用户在外部平台点击“收藏”后，后端通过流式监听（Streams）自动感知新增收藏，并按照收藏夹类别自动选择并执行相应的工作坊任务（如：深度思考、精简摘要）。
-- 手动在前端触发任务是补充能力，但非核心路径。
+*你的私人认知伙伴，将被动的信息囤积转化为主动的知识综合*
 
-### 系统角色与边界
-- **数据接入层**：通过 `client_sdk` 与外部抓取/处理服务通信，获取收藏集合、视频清单与详情。
-- **数据管理层**：统一落库为本地模型（作者、集合、收藏条目、媒体详情、标签等）。
-- **AI 任务层**：定义“工作坊（Workshop）”概念，发起、异步执行、保存结果，并对结果进行再生与编辑。
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Nuxt 3](https://img.shields.io/badge/nuxt-3.x-00DC82.svg)](https://nuxt.com/)
+[![License](https://img.shields.io/badge/license-Private-red.svg)](LICENSE)
 
+[English](./README_EN.md) | 简体中文
 
-## 主要功能
+[功能特性](#功能特性) • [快速开始](#快速开始) • [架构设计](#架构设计) • [文档](#文档)
 
-### 1) 仪表盘总览（Dashboard）
-- 汇总数据：概览统计、活动热力图、待处理队列、工作坊矩阵、近期输出、趋势（标签）
-- 一次请求返回整页渲染所需的聚合数据
-- API：`GET /api/v1/dashboard`
+</div>
 
-### 2) 收藏管理（Collections / Favorite Items）
-- 列表分页、排序、按标签过滤
-- 收件箱视图（仅显示 `pending` 状态条目）
-- 单条详情查询
-- 手动创建/编辑/删除收藏条目
-- 为条目增删标签
-- API 根：`/api/v1/collections`
-  - `GET /`：分页列表（可按 `tags`、`sort_by`、`sort_order` 过滤/排序）
-  - `GET /inbox`：待处理队列
-  - `GET /{id}`：详情
-  - `POST /`：创建
-  - `PUT /{id}`：更新
-  - `DELETE /{id}`：删除
-  - `POST /{id}/tags`、`DELETE /{id}/tags`：标签维护
+---
 
-### 3) 标签（Tags）
-- 返回所有标签及使用次数，用于筛选/趋势
-- API：`GET /api/v1/tags`
+## 💡 我们面临的问题
 
-### 4) 数据同步（Sync / Bilibili）
-- 同步收藏夹列表
-- 同步指定收藏夹内的视频清单（brief）
-- 批量拉取视频详情（统计、分辨率、音视频直链、字幕、分类、标签等）
-- 均通过 `client_sdk` 与外部 RPC 服务通信，并转换/落库为本地统一模型
-- API：
-  - `POST /api/v1/sync/bilibili/collections`：同步收藏夹列表
-  - `POST /api/v1/sync/bilibili/collections/{platform_collection_id}/videos`：同步该收藏夹下视频清单
-  - `POST /api/v1/sync/bilibili/videos/details`：按 `bvid` 列表批量更新详情
+我们生活在一个悖论之中：**我们收集信息的速度前所未有，却以同样的效率将其遗忘**。
 
-### 5) 流式监听与自动任务（Streams → Workshops）
-- 基于 `client_sdk.run_plugin_stream` 的长连接拉流能力，对指定收藏夹或账号进行持续监听
-- 后端 `stream_manager` 将流事件广播到 Web 前端，同时触发内部事件处理器，将“新增收藏”等事件映射为对应工作坊任务并自动执行
-- API：
-  - `GET /api/v1/streams`：列出运行中的流
-  - `POST /api/v1/streams/start`：启动监听流（参数包括 `plugin_id`、`run_mode`、`interval`、`buffer_size`、`params` 等）
-  - `POST /api/v1/streams/{stream_id}/stop`：停止流
-- 事件格式（示例）：
-  - `{"type":"favorite_added","platform":"bilibili","collection_id":"...","item":{"bvid":"BV...","category":"精简摘要", ...}}`
-- 类别映射（默认示例）：
-  - `精简摘要` → `summary-01`
-  - `深度思考` → `snapshot-insight`
-  - 未匹配时回退到 `summary-01`
+- 📱 你的B站收藏夹？**8000+视频，再也没看过**
+- 📕 你的小红书收藏？**信息墓地，而非灵感金矿**
+- 📚 你的笔记应用？**孤立的碎片，断裂的洞察**
+- 🤖 你的AI工具？**需要手动输入，复制粘贴的摩擦**
 
-### 5) 搜索（Search）
-- 全局搜索收藏条目（标题、简介）与 AI 结果（内容），统一返回
-- API：`GET /api/v1/search?q=...`
+**真正的瓶颈不是存储——而是转化。**
 
-### 6) AI 工作坊（Workshops）与任务（Tasks）
-- 预置多类工作坊：如“精华摘要”“快照洞察”“信息炼金术”“观点对撞”“学习任务”
-- 自动/手动发起工作坊任务，后台异步执行，返回 `task_id`
-- 任务状态总览、单任务状态查询、清理已完成任务
-- API：
-  - `GET /api/v1/workshops`：列出可用工作坊
-  - `POST /api/v1/workshops/{workshop_id}/execute`：对指定收藏条目执行工作坊（返回 `task_id`）
-  - `GET /api/v1/tasks/status`：全局任务统计
-  - `GET /api/v1/tasks/{task_id}`：单任务状态
-  - `DELETE /api/v1/tasks/clear-completed`：清理成功/失败任务
-  - **管理接口**（`/api/v1/workshops/manage`）：
-    - `GET /manage`：获取所有 workshop 的完整配置列表。
-    - `POST /manage`：创建一个新的 workshop。
-    - `PUT /manage/{workshop_id}`：更新指定 ID 的 workshop。
-    - `DELETE /manage/{workshop_id}`：删除一个 workshop。
+---
 
-### 7) 结果管理（Results）
-- AI 生成结果的增删改
-- 支持“再生”结果：为结果所在条目新建并运行工作坊任务，完毕后回写该结果或新建结果
-- API：
-  - `PUT /api/v1/results/{id}`：修改内容
-  - `DELETE /api/v1/results/{id}`：删除
-  - `POST /api/v1/results/{id}/regenerate`：再生（返回触发的 `task`）
+## ✨ MindEcho 解决方案
 
-### 8) 设置（Settings）
-- 获取与更新应用设置（如主题、通知、AI 模型等）
-- API：
-  - `GET /api/v1/settings`
-  - `PUT /api/v1/settings`
-  - 运行时映射：`category_to_workshop`（字典）支持动态配置“收藏夹类别→工作坊”映射，无需重启。例如：
-    ```json
-    {
-      "theme": "dark",
-      "notifications_enabled": true,
-      "ai_model": "gemini-2.5-flash-preview-05-20",
-      "category_to_workshop": {
-        "精简摘要": "summary-01",
-        "深度思考": "snapshot-insight",
-        "信息炼金术": "information-alchemy"
-      }
-    }
-    ```
+MindEcho 不仅仅是另一个信息管理工具。它是一个**私人认知伙伴**，自动将你分散的数字收藏转化为**互联的知识网络**。
 
-### 9) LLM 代理（LLM Proxy）
-- 将前端请求安全转发给后端的 `client_sdk`（示例使用 `EAIRPCClient`）
-- API：`POST /api/v1/llm/call`
+### 四大战略支柱
 
+#### 🔒 **1. 绝对隐私与数据主权**
+> *"你的思想只属于你自己。"*
 
-## 数据模型（简述）
-- `Author`：作者（平台用户）
-- `Collection`：外部平台的收藏夹/合集
-- `FavoriteItem`：收藏条目（视频/笔记等），关联作者、集合、标签，持久化发布时间、收藏时间、封面、简介与状态
-- `BilibiliVideoDetail`：B 站视频详情（统计、分辨率、分类、弹幕数等），并挂载 `BilibiliVideoUrl`、`BilibiliAudioUrl`、`BilibiliSubtitle`
-- `Tag`：标签，多对多关联收藏条目
-- `Result`：工作坊的 AI 产出，关联收藏条目与触发的 `Task`
-- `Task`：工作坊任务（`pending/in_progress/success/failure`），关联收藏条目与产出
+- ✅ **100% 本地执行** — 无云处理，无数据收集
+- ✅ **你的数据，你的规则** — 完全控制你的信息
+- ✅ **离线可用** — 设置完成后无需联网
 
+#### 🤖 **2. 深度自动化与主动智能**
+> *"在你忘记之前，MindEcho 已经为你思考过了。"*
 
-## 典型工作流
+- ✅ **零干预自动化** — 在后台静默工作
+- ✅ **智能监控** — 24/7 监控你喜欢的平台
+- ✅ **自动触发处理** — 点击"收藏"的瞬间，AI分析就已启动
 
-### A. 首次接入与落库
-1. 同步收藏夹列表 → `POST /sync/bilibili/collections`
-2. 选择一个收藏夹，同步视频清单 → `POST /sync/bilibili/collections/{id}/videos`
-3. 批量补充视频详情 → `POST /sync/bilibili/videos/details`
+#### 🕸️ **3. 互联知识网络** *(即将推出)*
+> *"激活你的整个知识库——让每一次收藏在你的思维中回响。"*
 
-### B. 自动加工与消费
-1. 启动监听流 → `POST /streams/start`（指定 `plugin_id` 与参数：被监听的收藏夹/账号）
-2. 用户在外部平台点击“收藏”
-3. 流事件抵达后端并广播；事件处理器按类别选择工作坊并自动创建任务
-5. 结果入库后，可在结果页编辑或再生 → `PUT /results/{id}` / `POST /results/{id}/regenerate`
+- 🔜 **语义链接** — 自动连接新内容与你的知识历史
+- 🔜 **知识图谱** — 可视化想法之间的关系
+- 🔜 **智能推荐** — 在相关时刻唤醒被遗忘的洞察
 
-### C. 日常管理
-- 收藏条目增删改、打标签、过滤/搜索
-- 清理已完成任务，维护设置
+#### ⚡ **4. 一体化工作流**
+> *"从信息噪音到最终产物，一步到位。"*
 
+- ✅ **多模态输入** — 视频、图片、文本（支持B站、小红书）
+- ✅ **AI处理** — 摘要、深度分析、观点对撞
+- ✅ **结构化输出** — 报告、洞察、行动项
+- ✅ **替代5-6个工具** — 统一体验
 
-## 接口分组与路由前缀
-- 基础根路由：`GET /` → 健康欢迎信息
-- 统一前缀：`/api/v1`
-  - Dashboard：`/dashboard`
-  - Collections：`/collections/...`
-  - Tags：`/tags`
-  - Results：`/results/...`
-  - Tasks：`/tasks/...`
-  - Workshops：`/workshops/...` 
-  - Search：`/search`
-  - LLM：`/llm/call`
-  - Settings：`/settings`
-  - Sync：`/sync/bilibili/...`
+---
 
+## 🎯 功能特性
 
-## 运行与开发（简要）
-- 环境：Python 3.10+；建议使用虚拟环境
-- 依赖：参见 `backend/requirements.txt`
-- 启动：
-  - 创建/迁移数据库由应用启动时自动建表（开发环境）
-  - 运行后端（示例）：`python backend/run_server.py` 或使用 `uvicorn app.main:app --reload`
-  - 某些同步/工作坊能力依赖本地运行的 RPC 服务（由 `EAI_BASE_URL`/`EAI_API_KEY` 配置）
+### 对于内容消费者
 
-### 任务实现最佳实践（LLM）
-- 统一通过 `client_sdk` 的 `chat_with_yuanbao` 与大模型通信，后端在任务执行中：
-  - 按 `workshop_id` 选择合适的系统提示/提示模板
-  - 从 `FavoriteItem` 提取上下文（标题、简介，或将来接入全文/字幕）
-- 配置项：在 `backend/app/core/config.py` 中通过环境变量设置 `EAI_BASE_URL` 与 `EAI_API_KEY`
-- 流式监听触发：在应用启动时注册事件处理器，将 `favorite_added` 事件映射为对应工作坊并自动执行
+| 功能 | 描述 | 状态 |
+|------|------|------|
+| 🎬 **自动同步收藏** | 自动同步你的B站/小红书收藏 | ✅ 已完成 |
+| 📊 **智能仪表盘** | 所有知识活动的可视化概览 | ✅ 已完成 |
+| 🔍 **全局搜索** | 搜索标题、描述和AI洞察 | ✅ 已完成 |
+| 📥 **收件箱分类** | 一键处理待处理项目 | ✅ 已完成 |
+| 🏷️ **智能标签** | 用标签组织，按平台/作者筛选 | ✅ 已完成 |
 
+### 对于知识工作者
 
-## 安全与日志
-- 统一接入 `LogConfig`，应用启动时初始化日志
-- LLM/同步接口对异常进行捕获并转译为合理的 HTTP 错误
-- 与外部服务通信失败时，日志保留上下文，便于排查
+| 功能 | 描述 | 状态 |
+|------|------|------|
+| 🧠 **AI工作坊** | 多种分析模式（摘要、深度洞察、辩论） | ✅ 已完成 |
+| ⚙️ **自定义工作流** | 创建你自己的分析管道 | ✅ 已完成 |
+| 🔄 **自动触发** | 将工作坊绑定到收藏夹以自动处理 | ✅ 已完成 |
+| 📝 **结果管理** | 编辑、重新生成或删除AI输出 | ✅ 已完成 |
+| 🎨 **多平台** | 所有来源的统一界面 | ✅ 已完成 |
 
+### 内置AI工作坊
 
-## 面向前端的契约要点
-- 返回模型均为 Pydantic Schema，字段命名稳定
-- 列表接口返回 `{ total, items }` 便于分页
+| 工作坊 | 用途 | 输出示例 |
+|--------|------|----------|
+| 📖 **精准摘要** | 提取核心思想 | "100字内的3个关键点" |
+| 💎 **快照洞察** | 深度分析 | "隐藏的模式与含义" |
+| ⚗️ **信息炼金术** | 交叉引用综合 | "连接5个来源的想法" |
+| ⚔️ **观点对撞** | 魔鬼代言人 | "对此主张的3个反驳论点" |
 
+---
 
-## 目录导航（后端）
-- `backend/app/main.py`：应用入口与路由挂载
-- `backend/app/api/endpoints/*`：REST/ 接口
-- `backend/app/services/*`：业务编排（仪表盘、收藏同步、工作坊）
-- `backend/app/crud/*`：数据库访问层
-- `backend/app/db/models.py`：ORM 模型
-- `backend/app/schemas/unified.py`：统一返回/请求模型
-- `backend/app/core/*`：配置、日志
-- `backend/client_sdk/*`：RPC 客户端与参数封装（示例）
+## 🚀 快速开始
 
+### 前置要求
 
-## AI Prompt：高质量“流事件 → 入库 → 详情 → 任务”架构规范
+- **Python 3.12+**（用于后端）
+- **Node.js 18+**（用于前端）
+- **Git**（用于克隆）
 
-以下内容专为 AI 代码生成而设，作为 Prompt 要求未来改动遵循相同的高可维护性标准。
+### 安装
 
-目标：当外部插件（如 B 站收藏流）推送事件时，后端以清晰、稳健、可测试的流水线完成：
-“事件解析 → 简略入库（幂等） → 拉取详情 → 创建 AI 任务（仅在详情存在时）”。
+#### 0. 配置万物皆接口应用(https://github.com/hc-tec/everything-as-an-interface)
 
-必须遵循的架构与约束：
-- 职责单一：每一步独立函数/类，输入输出明确，不混杂多重职责。
-- 依赖注入：面向 Protocol/接口编程，编排器仅依赖抽象，便于替换与单测。
-- 强类型：使用 `@dataclass` 与显式类型提示定义 DTO，禁止以 `dict` 随意传递。
-- CRUD 统一：所有持久化操作集中在 `crud_*` 层，service 仅做编排，不直接拼接 SQL。
-- 流水线顺序不可打乱：先简略入库，再拉详情，最后才建任务；缺详情严禁建任务。
-- 幂等保证：同一 `platform_item_id`（如 `bvid`）重复事件不得重复创建条目或任务。
-- 错误隔离：单条失败不得影响整体批次处理；记录上下文日志，允许部分成功。
+#### 1. 克隆仓库
 
-分层组件定义（不可随意合并）：
-1) DTO（数据传输对象）：
-   - `CreatorInfo`：作者信息（`user_id/username/avatar`）
-   - `VideoItemBrief`：简略视频（`bvid/collection_id/title/intro/cover/fav_time/creator`）
-   - `StreamEventData`：解析后的事件（`items + event_metadata`）
-
-2) Protocol 接口（依赖倒置）：
-   - `EventParser.parse(event) -> StreamEventData`
-   - `ItemPersister.persist_brief_items(db, items) -> List[FavoriteItem]`
-   - `DetailsSyncer.sync_details(db, items) -> None`
-   - `TaskCreator.create_analysis_tasks(db, items, event_metadata) -> None`
-
-3) 具体实现（以 B 站为例）：
-   - `BilibiliEventParser`：优先取 `payload.result.data.added.data`，回退 `data.data`。
-   - `BilibiliItemPersister`：
-     - 通过 `crud_favorites` 幂等入库：确保 `Author`、可选 `Collection`，再创建 `FavoriteItem`（brief）。
-     - 提供 `create_brief_with_relationships` 来一次性写入并挂接外键。
-   - `BilibiliDetailsSyncer`：调用 `favorites_service.sync_bilibili_videos_details(db, bvids)` 拉详情。
-   - `WorkshopTaskCreator`：仅在条目已有 `bilibili_video_details` 且不存在 `pending/in_progress` 任务时，创建工作坊任务，并异步运行。
-
-4) 编排器（唯一入口）：
-   - `StreamEventOrchestrator.handle_event(event, db)`：
-     - 解析 → 入库 → 拉详情 → 创建任务
-     - 所有依赖以构造函数注入，测试时用 Mock 替换。
-
-代码位置与工厂：
-- 核心实现：`backend/app/services/stream_event_handler.py`
-- 兼容入口：`listener_service.handle_stream_event` 仅负责委托给编排器。
-- 工厂方法：`create_bilibili_event_orchestrator()` 组装 parser/persister/syncer/task_creator。
-
-单元测试要求（必须）：
-- DTO 工厂：字段缺失/类型紊乱的容错。
-- 解析器：空事件/失败事件/正常事件分支。
-- 持久化：已存在条目不重复创建；作者/集合缺失时自动补齐。
-- 详情同步：有/无条目场景；异常不中断流水线。
-- 任务创建：无详情不建；已有未完成任务不建；正常创建时调用链完整。
-- 编排器：对 4 步调用顺序做断言；对“无 items”提前返回做断言。
-
-禁用模式（不要再出现）：
-- 在事件处理器里直接拼接 SQL/ORM 业务字段，破坏 CRUD 统一性。
-- 在未拉取详情前创建工作坊任务。
-- 大函数一把梭，数百行难以测试与维护。
-
-示例用法：
-```python
-from app.services.stream_event_handler import create_bilibili_event_orchestrator
-from app.db.base import AsyncSessionLocal
-
-async def handle_stream_event(event: dict) -> None:
-    orchestrator = create_bilibili_event_orchestrator()
-    async with AsyncSessionLocal() as db:
-        await orchestrator.handle_event(event, db)
+```bash
+git clone https://github.com/hc-tec/mindecho.git
+cd mindecho
 ```
 
-AI 生成代码时请严格遵循本节规范：保持接口稳定、职责独立、类型安全、可测试、可扩展。
+#### 2. 设置后端
 
-## 已知限制
-- 当前示例实现以 B 站为主，XHS 等平台为预留
-- LLM 与同步能力依赖本地 RPC 服务（需保证对应服务可用）
-- Settings 为内存示例实现，生产可改为数据库/配置中心
+```bash
+# 进入后端目录
+cd backend
 
+# 创建虚拟环境（推荐）
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-## 许可
-本项目默认为内部示例/私有用途，若需开源许可请在此处补充说明。
+# 安装依赖
+pip install -r requirements.txt
 
+# 启动后端服务器
+python run_server.py
+```
 
+后端API将在 `http://localhost:8008` 上可用
+
+#### 3. 设置前端
+
+```bash
+# 进入前端目录（在新终端中）
+cd frontend
+
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run dev
+```
+
+前端将在 `http://localhost:3001` 上可用
+
+#### 4. 初始配置
+
+1. **打开浏览器** → `http://localhost:3001`
+2. **进入设置** → 配置你的AI模型和偏好
+3. **同步收藏** → 设置 → 监听管理 → 启用工作坊
+4. **绑定收藏夹** → 将你的收藏夹链接到特定工作坊
+5. **开始收藏** → 在B站/小红书上收藏内容，看MindEcho工作！
+
+---
+
+## 📚 工作原理
+
+### 自动处理流程
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. 你在B站/小红书上收藏内容                                │
+└─────────────┬───────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. MindEcho通过连续流监控                                   │
+│    • 实时检测新收藏                                         │
+│    • 无需手动同步                                           │
+└─────────────┬───────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. 自动获取完整详情                                         │
+│    • 视频元数据、统计数据                                   │
+│    • 字幕（前100行）                                        │
+│    • 作者信息、标签                                         │
+└─────────────┬───────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 4. 触发绑定的工作坊                                         │
+│    • 收藏夹"深度思考" → 工作坊"快照洞察"                   │
+│    • 收藏夹"学习资料" → 工作坊"精准摘要"                   │
+└─────────────┬───────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 5. AI在后台分析内容                                         │
+│    • 处理丰富的上下文（标题、简介、字幕）                   │
+│    • 生成结构化洞察                                         │
+│    • 保存到本地数据库                                       │
+└─────────────┬───────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 6. 结果立即可用                                             │
+│    • 在仪表盘中查看                                         │
+│    • 搜索、编辑、重新生成                                   │
+│    • 所有数据保持本地                                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 智能路由
+
+MindEcho智能地将内容路由到正确的工作坊：
+
+```python
+# 示例：收藏夹 → 工作坊绑定
+{
+  "快照洞察": {
+    "bilibili": ["深度思考", "哲学思辨"],
+    "xiaohongshu": ["读书笔记"]
+  },
+  "精准摘要": {
+    "bilibili": ["技术教程", "学习资料"]
+  }
+}
+```
+
+**结果：**在"深度思考"中收藏的视频自动获得深度分析，而"技术教程"视频获得简洁摘要。
+
+---
+
+## 🏗️ 架构设计
+
+### 技术栈
+
+| 层级 | 技术 | 用途 |
+|------|------|------|
+| **前端** | Nuxt 3 + Vue 3 + TypeScript | 响应式UI，基于文件的路由 |
+| **状态** | Pinia | 集中式状态管理 |
+| **UI** | shadcn-vue + TailwindCSS | 可访问组件，现代设计 |
+| **后端** | FastAPI + Python 3.12+ | 异步API，类型安全 |
+| **数据库** | SQLite + SQLAlchemy（异步） | 本地存储，零配置 |
+| **任务队列** | Huey | 后台作业处理 |
+| **AI** | 外部RPC服务 | LLM调用，网页抓取 |
+
+### 系统架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         前端                                 │
+│  ┌─────────┐  ┌──────────┐  ┌─────────┐  ┌──────────┐    │
+│  │仪表盘   │  │收藏管理  │  │工作坊   │  │ 设置     │    │
+│  └────┬────┘  └────┬─────┘  └────┬────┘  └────┬─────┘    │
+│       │            │             │            │            │
+│       └────────────┴─────────────┴────────────┘            │
+│                         │                                   │
+│                    API客户端                                │
+└─────────────────────────┼───────────────────────────────────┘
+                          │ HTTP/WebSocket
+┌─────────────────────────┼───────────────────────────────────┐
+│                    FastAPI后端                               │
+│  ┌──────────────────────┴────────────────────────────────┐ │
+│  │                 API端点                                │ │
+│  └──────┬───────────────────────────────────────┬────────┘ │
+│         │                                        │          │
+│  ┌──────▼────────┐                       ┌──────▼────────┐ │
+│  │   服务层      │                       │ 流管理器      │ │
+│  │  - 工作坊     │◄──────────────────────│ - 监控        │ │
+│  │  - 收藏       │                       │ - 自动触发    │ │
+│  │  - 仪表盘     │                       └───────────────┘ │
+│  └──────┬────────┘                                         │
+│         │                                                   │
+│  ┌──────▼────────┐          ┌────────────────┐           │
+│  │     CRUD      │◄─────────│  任务队列      │           │
+│  │  数据访问层   │          │    (Huey)      │           │
+│  └──────┬────────┘          └────────────────┘           │
+│         │                                                   │
+│  ┌──────▼──────────────────────────────────────────────┐  │
+│  │              SQLite数据库（本地）                    │  │
+│  │  - favorites - workshops - tasks - results - tags   │  │
+│  └────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                          │
+                    RPC客户端
+                          │
+┌─────────────────────────▼───────────────────────────────────┐
+│                  外部RPC服务                                 │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐  │
+│  │ LLM API      │  │ 网页抓取     │  │ 平台认证        │  │
+│  │ (豆包)       │  │ (B站/小红书) │  │ (Cookie管理)    │  │
+│  └──────────────┘  └──────────────┘  └─────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 核心设计模式
+
+#### 1. 流驱动自动化
+
+```python
+# 外部平台的连续监控
+流管理器
+  ├─ B站流（监控收藏夹）
+  ├─ 小红书流（监控收藏）
+  └─ 事件编排器
+      ├─ 解析事件
+      ├─ 持久化简要项
+      ├─ 同步详情
+      └─ 创建工作坊任务（自动）
+```
+
+#### 2. 工作坊系统
+
+```python
+# 可插拔的AI处理管道
+工作坊（模板）
+  ├─ workshop_id: "snapshot-insight"
+  ├─ executor_type: "llm_chat"
+  ├─ default_prompt: "深度分析..."
+  └─ platform_bindings: [
+      {"platform": "bilibili", "collection_ids": [1, 2, 3]}
+  ]
+
+任务（执行实例）
+  ├─ status: pending → in_progress → success/failure
+  ├─ favorite_item_id: 123
+  └─ workshop_id: "snapshot-insight"
+
+结果（输出）
+  ├─ content: "# 深度分析\n..."
+  ├─ task_id: 456
+  └─ favorite_item_id: 123
+```
+
+#### 3. 智能路由
+
+```python
+# 收藏夹 → 工作坊映射
+if item.collection_id in workshop.platform_bindings:
+    create_task(workshop_id, item_id)
+else:
+    fallback_to_default_workshop()
+```
+
+---
+
+## 📖 文档
+
+### API文档
+
+后端运行后，访问：
+- **Swagger UI**：`http://localhost:8008/docs`
+- **ReDoc**：`http://localhost:8008/redoc`
+
+### 核心端点
+
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/api/v1/dashboard` | GET | 仪表盘概览数据 |
+| `/api/v1/collections` | GET | 列出收藏项（分页） |
+| `/api/v1/workshops` | GET | 列出可用工作坊 |
+| `/api/v1/workshops/{id}/execute` | POST | 在项目上触发工作坊 |
+| `/api/v1/tasks/{id}` | GET | 获取任务状态 |
+| `/api/v1/sync/bilibili/collections` | POST | 同步B站收藏夹 |
+| `/api/v1/streams` | GET | 列出活动监控流 |
+| `/api/v1/settings` | GET/PUT | 管理应用设置 |
+
+### 环境变量
+
+创建 `backend/.env`：
+
+```bash
+# 数据库
+DATABASE_URL=sqlite+aiosqlite:///./mindecho.db
+
+# 外部RPC服务
+EAI_BASE_URL=http://127.0.0.1:8008
+EAI_API_KEY=your_api_key_here
+
+# LLM配置
+YUANBAO_CONVERSATION_ID=your_conversation_id
+YUANBAO_COOKIE_IDS=["cookie_id_1", "cookie_id_2"]
+
+# 平台认证
+BILIBILI_COOKIE_IDS=["bilibili_cookie_1"]
+XIAOHONGSHU_COOKIE_IDS=["xhs_cookie_1"]
+
+# 流配置
+BILIBILI_FAVORITES_STREAM_INTERVAL=10
+XIAOHONGSHU_STREAM_INTERVAL=15
+```
+
+---
+
+## 🧪 开发
+
+### 运行测试
+
+```bash
+# 后端测试
+cd backend
+pytest                              # 运行所有测试
+pytest -v                           # 详细输出
+pytest --cov=app --cov-report=html  # 带覆盖率报告
+pytest tests/api/endpoints/         # 特定目录
+
+# 前端测试（如果可用）
+cd frontend
+npm run test
+```
+
+### 代码质量
+
+```bash
+# 后端代码检查
+cd backend
+ruff check .                        # 检查问题
+ruff check . --fix                  # 自动修复问题
+
+# 类型检查
+mypy app/
+```
+
+### 数据库管理
+
+```bash
+# 查看数据库
+cd backend
+sqlite3 mindecho.db
+.tables                             # 列出表
+.schema favorite_items              # 查看模式
+SELECT * FROM tasks LIMIT 10;       # 查询数据
+```
+
+---
+
+## 🛠️ 故障排除
+
+### 常见问题
+
+**问：后端无法启动**
+- 检查Python版本：`python --version`（必须是3.12+）
+- 验证依赖：`pip install -r requirements.txt`
+- 检查 `.env` 文件是否存在并配置有效
+
+**问：前端无法连接到后端**
+- 确保后端在8008端口运行
+- 检查 `backend/app/main.py` 中的CORS设置
+- 验证 `frontend/app/lib/api.ts` 中的API URL
+
+**问：工作坊不自动触发**
+- 验证流正在运行：`GET /api/v1/streams`
+- 检查设置 → 监听管理中的平台绑定
+- 启用工作坊的监听开关
+- 查看后端日志中的错误
+
+**问：没有生成AI结果**
+- 验证 EAI_BASE_URL 和 EAI_API_KEY 已设置
+- 检查外部RPC服务是否运行
+- 查看任务状态：`GET /api/v1/tasks/{id}`
+- 检查后端日志中的LLM错误
+
+---
+
+## 🗺️ 路线图
+
+### ✅ 第一阶段：基础（已完成）
+- [x] 基本收藏同步
+- [x] 工作坊系统
+- [x] 自动触发
+- [x] 多平台支持（B站、小红书）
+- [x] 智能路由
+
+### 🚧 第二阶段：智能化（进行中）
+- [ ] 语义链接引擎
+- [ ] 知识图谱可视化
+- [ ] 智能推荐
+- [ ] 跨平台综合
+
+### 📋 第三阶段：扩展（计划中）
+- [ ] 更多平台集成（YouTube、Twitter、播客）
+- [ ] 导出格式（Markdown、Anki、Notion）
+- [ ] 工作坊链接（多步骤管道）
+- [ ] 移动应用
+
+### 🔮 第四阶段：高级（未来）
+- [ ] 本地LLM支持（无需外部RPC）
+- [ ] 知识差距检测
+- [ ] 间隔重复系统
+- [ ] 协作知识共享
+
+---
+
+## 🤝 贡献
+
+MindEcho目前正在积极开发中。欢迎贡献！
+
+### 开发原则
+
+1. **隐私优先**：绝不将用户数据发送到外部服务
+2. **自动化优先**：尽可能减少手动工作
+3. **质量优先**：没有"足够好"——每个细节都很重要
+4. **测试优先**：所有新功能必须有测试
+
+### 如何贡献
+
+1. Fork仓库
+2. 创建功能分支：`git checkout -b feature/amazing-feature`
+3. 进行更改并添加测试
+4. 运行测试和代码检查
+5. 提交并附上清晰的消息：`git commit -m 'feat: add amazing feature'`
+6. 推送到你的分支：`git push origin feature/amazing-feature`
+7. 打开Pull Request
+
+---
+
+## 📄 许可证
+
+本项目目前为**私有**，供个人/内部使用。如需许可咨询，请联系作者。
+
+---
+
+## 🙏 致谢
+
+- **FastAPI** - 现代Python Web框架
+- **Nuxt** - 直观的Vue框架
+- **shadcn-vue** - 美观的可访问组件
+- **SQLAlchemy** - 强大的ORM
+- 所有开源贡献者
+
+---
+
+## 💬 支持
+
+- **问题反馈**：[GitHub Issues](https://github.com/hc-tec/mindecho/issues)
+- **讨论**：[GitHub Discussions](https://github.com/hc-tec/mindecho/discussions)
+- **QQ群(1060464232)**：点击链接加入群聊【思维回响 | 技术交流】：http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=jJJq2p7q_TG4DAqAs_MLvR2SoXJnhGAc&authKey=Ed%2FqyO1tSR4bJp1WYYIwkTy8e7vfCdOybGkBejjHPcS2Q8OOH7oLg0EcaJAfIvHL&noverify=0&group_code=1060464232
+
+---
+
+<div align="center">
+
+**用 ❤️ 为拒绝遗忘的知识工作者打造**
+
+*"在你忘记之前，MindEcho已经为你思考过了。"*
+
+[⬆ 返回顶部](#mindecho思维回响)
+
+</div>

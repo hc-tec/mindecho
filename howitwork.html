@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>思维回响工作原理报告</title>
+    
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 引入 Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <!-- 样式与字体定义 -->
+    <style>
+        /* 引入 Noto Sans SC 字体 */
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
+
+        /* 全局样式 */
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background-color: #F3F4F6; /* 对应 Tailwind 的 bg-gray-100 */
+        }
+
+        /* 移动设备外框，用于在屏幕中居中展示卡片 */
+        .mobile-frame {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        /* 核心内容卡片，严格遵守 9:16 比例 */
+        .content-card {
+            aspect-ratio: 9 / 16;
+            height: 844px; /* 固定高度以保证渲染一致性 */
+            width: auto;
+            background-color: #ffffff;
+            border-radius: 2rem;
+            box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* 页面容器样式 */
+        .page-container {
+            flex-grow: 1;
+            position: relative;
+            overflow-y: hidden; /* 允许内容过多时内部滚动 */
+        }
+
+        /* 页面通用样式 */
+        .page {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            padding: 2.5rem;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
+            transform: translateY(10px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center; /* 垂直居中内容 */
+            align-items: center; /* 水平居中内容 */
+            text-align: center;
+        }
+
+        /* 当前显示的页面样式 */
+        .page.active {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        /* 标题渐变色 */
+        .title-gradient {
+            background: linear-gradient(to right, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-fill-color: transparent;
+        }
+
+        /* 高亮文本渐变色 */
+        .highlight {
+            background: linear-gradient(to right, #10b981, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-fill-color: transparent;
+        }
+
+        /* 导航控件样式 */
+        .navigation-controls {
+            padding: 1.5rem 2.5rem;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .nav-button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .page-indicator-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #d1d5db; /* gray-300 */
+            transition: background-color 0.3s ease;
+        }
+
+        .page-indicator-dot.active {
+            background-color: #4f46e5; /* indigo-600 */
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 移动设备外框 -->
+    <div class="mobile-frame">
+        <!-- 核心内容卡片 -->
+        <div class="content-card">
+            
+            <!-- 页面容器 -->
+            <div class="page-container">
+                
+                <!-- 第 1 页：标题页 -->
+                <section class="page active" data-page="1">
+                    <div class="w-full">
+                        <i class="fas fa-brain text-5xl text-indigo-500 mb-6"></i>
+                        <h1 class="text-4xl md:text-5xl font-bold title-gradient leading-tight mb-4">
+                            思维回响是如何工作的
+                        </h1>
+                        <p class="text-lg text-gray-600 leading-relaxed max-w-md mx-auto">
+                            思维回响提供了若干AI工作坊，每个工作坊都对应一个角色或功能，实现内容的自动化处理与生成。
+                        </p>
+                    </div>
+                </section>
+
+                <!-- 第 2 页：AI工作坊概览 -->
+                <section class="page" data-page="2">
+                    <div class="w-full">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-8">AI 工作坊概览</h2>
+                        <div class="grid grid-cols-2 gap-4 text-left">
+                            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center">
+                                <i class="fas fa-file-alt text-indigo-500 text-lg w-6 text-center"></i><span class="ml-2 text-sm font-semibold text-gray-700">精华摘要</span>
+                            </div>
+                            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center">
+                                <i class="fas fa-search text-purple-500 text-lg w-6 text-center"></i><span class="ml-2 text-sm font-semibold text-gray-700">深度思考</span>
+                            </div>
+                            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center">
+                                <i class="fas fa-flask text-pink-500 text-lg w-6 text-center"></i><span class="ml-2 text-sm font-semibold text-gray-700">信息炼金术</span>
+                            </div>
+                            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center">
+                                <i class="fas fa-comments text-orange-500 text-lg w-6 text-center"></i><span class="ml-2 text-sm font-semibold text-gray-700">观点碰撞</span>
+                            </div>
+                            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center">
+                                <i class="fas fa-tasks text-sky-500 text-lg w-6 text-center"></i><span class="ml-2 text-sm font-semibold text-gray-700">学习任务</span>
+                            </div>
+                            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center">
+                                <i class="fas fa-pencil-alt text-teal-500 text-lg w-6 text-center"></i><span class="ml-2 text-sm font-semibold text-gray-700">写作模仿</span>
+                            </div>
+                            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center">
+                                <i class="fas fa-lightbulb text-yellow-500 text-lg w-6 text-center"></i><span class="ml-2 text-sm font-semibold text-gray-700">灵感火花</span>
+                            </div>
+                            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center">
+                                <i class="fas fa-id-card text-blue-500 text-lg w-6 text-center"></i><span class="ml-2 text-sm font-semibold text-gray-700">知识卡片</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 第 3 页：可视化工作流 (已更新) -->
+                <section class="page" data-page="3">
+                    <div class="w-full">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-10">可视化工作流</h2>
+                        <div class="flex flex-col items-center space-y-2">
+
+                            <!-- 步骤 1: 用户操作 -->
+                            <div class="w-full max-w-xs p-4 bg-purple-50 border-2 border-dashed border-purple-200 rounded-xl text-center">
+                                <i class="fas fa-folder-plus text-3xl text-purple-500 mb-2"></i>
+                                <h3 class="font-semibold text-gray-800">1. 用户收藏内容</h3>
+                                <p class="text-sm text-gray-600">将内容放入绑定的收藏夹</p>
+                            </div>
+
+                            <!-- 连接箭头 -->
+                            <i class="fas fa-arrow-down text-3xl text-gray-300 my-1"></i>
+
+                            <!-- 步骤 2: 自动化处理 -->
+                            <div class="w-full max-w-xs p-4 bg-blue-50 border-2 border-dashed border-blue-200 rounded-xl text-center">
+                                <i class="fas fa-robot text-3xl text-blue-500 mb-2"></i>
+                                <h3 class="font-semibold text-gray-800">2. AI 自动处理</h3>
+                                <p class="text-sm text-gray-600">提取内容并调用工作坊生成回答</p>
+                            </div>
+                            
+                            <!-- 连接箭头 -->
+                            <i class="fas fa-arrow-down text-3xl text-gray-300 my-1"></i>
+
+                            <!-- 步骤 3: 结果通知 -->
+                             <div class="w-full max-w-xs p-4 bg-green-50 border-2 border-dashed border-green-200 rounded-xl text-center">
+                                <i class="fas fa-envelope-open-text text-3xl text-green-500 mb-2"></i>
+                                <h3 class="font-semibold text-gray-800">3. 结果通知</h3>
+                                <p class="text-sm text-gray-600">通过邮件等方式发送结果</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 第 4 页：未来拓展 -->
+                <section class="page" data-page="4">
+                    <div class="w-full">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-10">拓展与通知</h2>
+                        
+                        <div class="flex flex-col items-center justify-center p-6 bg-gray-50 border border-gray-200 rounded-xl">
+                            <i class="fas fa-cogs text-4xl text-gray-500 mb-4"></i>
+                            <h3 class="text-xl font-semibold text-gray-800 mb-2">基于「万物皆接口」</h3>
+                            <p class="text-gray-600 max-w-xs">
+                                整个流程构建在灵活的接口之上，未来可以轻松接入更多服务与通知渠道。
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+
+            <!-- 导航控件 -->
+            <div class="navigation-controls">
+                <div class="flex justify-between items-center">
+                    <!-- 上一页按钮 -->
+                    <button id="prev-btn" class="nav-button bg-gray-200 text-gray-700 font-semibold py-2 px-5 rounded-full transition-colors duration-300 hover:bg-gray-300 disabled:bg-gray-100">
+                        <i class="fas fa-arrow-left mr-2"></i> 上一页
+                    </button>
+                    
+                    <!-- 页面指示器 -->
+                    <div id="page-indicator" class="flex space-x-2">
+                        <!-- JS会动态生成小圆点 -->
+                    </div>
+                    
+                    <!-- 下一页按钮 -->
+                    <button id="next-btn" class="nav-button bg-indigo-600 text-white font-semibold py-2 px-5 rounded-full transition-colors duration-300 hover:bg-indigo-700">
+                        下一页 <i class="fas fa-arrow-right ml-2"></i>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- 内联 JavaScript 逻辑 -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const pages = document.querySelectorAll('.page');
+            const totalPages = pages.length;
+            const prevBtn = document.getElementById('prev-btn');
+            const nextBtn = document.getElementById('next-btn');
+            const pageIndicator = document.getElementById('page-indicator');
+            let currentPage = 1;
+
+            // 初始化页面指示器
+            function initializeIndicator() {
+                // 清空旧的指示器
+                pageIndicator.innerHTML = '';
+                // 重新生成
+                for (let i = 0; i < totalPages; i++) {
+                    const dot = document.createElement('div');
+                    dot.classList.add('page-indicator-dot');
+                    if (i === 0) {
+                        dot.classList.add('active');
+                    }
+                    pageIndicator.appendChild(dot);
+                }
+            }
+
+            // 更新页面显示和控件状态
+            function updatePage() {
+                // 更新页面
+                pages.forEach(page => {
+                    if (parseInt(page.dataset.page) === currentPage) {
+                        page.classList.add('active');
+                    } else {
+                        page.classList.remove('active');
+                    }
+                });
+                
+                // 更新指示器
+                const dots = pageIndicator.querySelectorAll('.page-indicator-dot');
+                dots.forEach((dot, index) => {
+                    if (index === currentPage - 1) {
+                        dot.classList.add('active');
+                    } else {
+                        dot.classList.remove('active');
+                    }
+                });
+
+                // 更新按钮状态
+                prevBtn.disabled = currentPage === 1;
+                nextBtn.disabled = currentPage === totalPages;
+            }
+
+            // “下一页”按钮点击事件
+            nextBtn.addEventListener('click', () => {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    updatePage();
+                }
+            });
+
+            // “上一页”按钮点击事件
+            prevBtn.addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    updatePage();
+                }
+            });
+
+            // 初始化
+            initializeIndicator();
+            updatePage();
+        });
+    </script>
+
+</body>
+</html>
+
