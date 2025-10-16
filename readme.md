@@ -137,7 +137,7 @@ pip install -r requirements.txt
 python run_server.py
 ```
 
-后端API将在 `http://localhost:8008` 上可用
+后端API将在 `http://localhost:8001` 上可用
 
 #### 3. 设置前端
 
@@ -352,8 +352,8 @@ else:
 ### API文档
 
 后端运行后，访问：
-- **Swagger UI**：`http://localhost:8008/docs`
-- **ReDoc**：`http://localhost:8008/redoc`
+- **Swagger UI**：`http://localhost:8001/docs`
+- **ReDoc**：`http://localhost:8001/redoc`
 
 ### 核心端点
 
@@ -377,7 +377,7 @@ else:
 DATABASE_URL=sqlite+aiosqlite:///./mindecho.db
 
 # 外部RPC服务
-EAI_BASE_URL=http://127.0.0.1:8008
+EAI_BASE_URL=http://127.0.0.1:8001
 EAI_API_KEY=your_api_key_here
 
 # LLM配置
@@ -447,7 +447,7 @@ SELECT * FROM tasks LIMIT 10;       # 查询数据
 - 检查 `.env` 文件是否存在并配置有效
 
 **问：前端无法连接到后端**
-- 确保后端在8008端口运行
+- 确保后端在8001端口运行
 - 检查 `backend/app/main.py` 中的CORS设置
 - 验证 `frontend/app/lib/api.ts` 中的API URL
 
