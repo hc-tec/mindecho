@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     BILIBILI_CLOSE_PAGE_WHEN_TASK_FINISHED: bool = True
     BILIBILI_DETAILS_MAX_RETRY_ATTEMPTS: int = 5  # Max retry attempts for details fetch
 
-    YUANBAO_COOKIE_IDS: list[str] = field(default_factory=lambda: ["31cfb23b-ade9-41ca-80ce-7624979cb006"])
+    YUANBAO_COOKIE_IDS: list[str] = field(default_factory=lambda: ["0bf3d999-da6d-468e-8a70-77f08b5c68ed"])
     YUANBAO_CONVERSATION_ID: str = "565db7d0-cead-4cf2-b2ca-78d5d34de14c"
 
     # Xiaohongshu configuration

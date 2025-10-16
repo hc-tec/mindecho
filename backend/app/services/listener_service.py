@@ -36,9 +36,10 @@ async def _resolve_workshop_id_for_item(db, db_item: FavoriteItem, event: Dict[s
     """Decide which workshop_id to use for a new favorite item.
 
     Preference:
-    1) If the item's collection title equals some workshop.workshop_name AND that workshop has
-       executor_config.listening_enabled == True, use that workshop.
-    2) Otherwise, fallback to runtime category mapping.
+    1) If the item's collection is bound to a workshop via platform_bindings, use that workshop.
+    2) If the item's collection is bound via legacy binding_collection_id, use that workshop.
+    3) If the item's collection title matches a workshop name with listening enabled, use that.
+    4) Otherwise, fallback to runtime category mapping.
     """
     # Default
     selected = "summary-01"
@@ -53,15 +54,40 @@ async def _resolve_workshop_id_for_item(db, db_item: FavoriteItem, event: Dict[s
                 platform_collection_id=db_item.collection_id
             )
 
-        # 1) Binding by collection_id has highest priority
-        rows = (await db.execute(select(WorkshopModel))).scalars().all()
-        for r in rows:
-            cfg = await _parse_executor_config(r)
-            # binding_collection_id in config stores Collection.id (integer primary key)
-            if isinstance(cfg, dict) and cfg.get("listening_enabled") is True and collection and cfg.get("binding_collection_id") == collection.id:
-                return r.workshop_id
+        # Priority 1: New platform_bindings structure (multi-platform, multi-collection)
+        if collection:
+            rows = (await db.execute(select(WorkshopModel))).scalars().all()
+            for r in rows:
+                cfg = await _parse_executor_config(r)
+                if not (isinstance(cfg, dict) and cfg.get("listening_enabled") is True):
+                    continue
 
-        # 2) Title match when enabled
+                # Check platform_bindings array
+                platform_bindings = cfg.get("platform_bindings", [])
+                if isinstance(platform_bindings, list):
+                    for binding in platform_bindings:
+                        if (binding.get("platform") == db_item.platform and
+                            isinstance(binding.get("collection_ids"), list) and
+                            collection.id in binding.get("collection_ids")):
+                            logger.info(
+                                f"Resolved workshop '{r.workshop_id}' for item via platform_bindings "
+                                f"(collection_id={collection.id}, platform={db_item.platform})"
+                            )
+                            return r.workshop_id
+
+        # Priority 2: Legacy binding_collection_id (single collection)
+        if collection:
+            rows = (await db.execute(select(WorkshopModel))).scalars().all()
+            for r in rows:
+                cfg = await _parse_executor_config(r)
+                if isinstance(cfg, dict) and cfg.get("listening_enabled") is True and cfg.get("binding_collection_id") == collection.id:
+                    logger.info(
+                        f"Resolved workshop '{r.workshop_id}' for item via legacy binding_collection_id "
+                        f"(collection_id={collection.id})"
+                    )
+                    return r.workshop_id
+
+        # Priority 3: Title match when enabled
         if collection and collection.title:
             row = (
                 (await db.execute(select(WorkshopModel).where(WorkshopModel.name == collection.title)))
@@ -71,12 +97,20 @@ async def _resolve_workshop_id_for_item(db, db_item: FavoriteItem, event: Dict[s
             if row:
                 cfg = await _parse_executor_config(row)
                 if isinstance(cfg, dict) and cfg.get("listening_enabled") is True:
+                    logger.info(
+                        f"Resolved workshop '{row.workshop_id}' for item via title match "
+                        f"(collection_title={collection.title})"
+                    )
                     return row.workshop_id
 
         # Fallback to runtime-config category map
         category = (event.get("item") or {}).get("category") or event.get("category")
         mapping = runtime_config.get_category_map()
         selected = mapping.get(category or "", selected)
+        logger.info(
+            f"Using fallback workshop '{selected}' for item "
+            f"(category={category}, collection_id={collection.id if collection else None})"
+        )
     except Exception:
         logger.exception("Failed to resolve workshop for item_id=%s", db_item.id)
 

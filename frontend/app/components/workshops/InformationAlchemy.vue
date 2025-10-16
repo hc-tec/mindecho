@@ -111,13 +111,13 @@ const getInsightConfig = (type: string) => insightConfig[type] || insightConfig.
 </script>
 
 <template>
-  <div>
-    <header class="p-4 border-b border-border bg-muted/50">
+  <div class="fixed inset-0 left-0 md:left-64 flex flex-col bg-background">
+    <header class="p-4 border-b border-border bg-muted/50 shrink-0">
       <h2 class="text-2xl font-bold tracking-tight">{{ workshop.name }}</h2>
       <p class="text-muted-foreground">{{ workshop.description }}</p>
     </header>
-    
-    <div class="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-px bg-border overflow-hidden">
+
+    <div class="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-px bg-border min-h-0 overflow-hidden">
       <!-- Left Column: Source Materials -->
       <div class="bg-background flex flex-col h-full">
         <div class="p-4 border-b border-border flex items-center justify-between">

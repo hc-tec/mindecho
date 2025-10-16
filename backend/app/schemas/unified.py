@@ -324,6 +324,82 @@ class Task(TaskBase):
     created_at: datetime
     updated_at: datetime
     result: Optional[Result] = None
-    
+
     class Config:
         orm_mode = True
+
+
+# ============================================================================
+# Dashboard Schemas
+# ============================================================================
+
+class PlatformStats(BaseModel):
+    """按平台统计的项目数量"""
+    bilibili: int = 0
+    xiaohongshu: int = 0
+
+
+class OverviewStats(BaseModel):
+    """仪表盘总览统计数据
+
+    包含系统核心指标：
+    - total_items: 总收藏数（所有 FavoriteItem）
+    - processed_items: 已处理数（有成功 Result 的项）
+    - pending_items: 待处理数（status = PENDING 的项）
+    - items_by_platform: 按平台分布的项目数
+    - recent_growth: 最近30天的增长百分比
+    """
+    total_items: int
+    processed_items: int
+    pending_items: int
+    items_by_platform: PlatformStats
+    recent_growth: float = 0.0  # 百分比，例如 28.5 表示 28.5%
+
+
+class ActivityDay(BaseModel):
+    """单日活动数据
+
+    用于生成活动热力图，记录每天的收藏数量
+    """
+    date: str  # ISO format: "2024-01-01"
+    count: int  # 当日收藏数
+
+
+class WorkshopMatrixItem(BaseModel):
+    """工坊矩阵单项数据
+
+    展示单个工坊的运行状态和活跃度：
+    - id: workshop_id
+    - name: 工坊名称
+    - total: 历史总输出数（Result 总数）
+    - in_progress: 当前进行中的任务数
+    - activity_last_7_days: 最近7天每天的任务创建数（从旧到新）
+    """
+    id: str
+    name: str
+    total: int
+    in_progress: int
+    activity_last_7_days: List[int]  # 7个整数，从7天前到今天
+
+
+class TrendingKeyword(BaseModel):
+    """趋势关键词
+
+    从标签中提取的高频词，用于发现用户收藏的内容趋势
+    """
+    keyword: str
+    frequency: int  # 出现频次
+
+
+class DashboardResponse(BaseModel):
+    """仪表盘完整响应数据
+
+    聚合所有仪表盘组件需要的数据，一次请求返回所有信息
+    以提高前端性能和用户体验
+    """
+    overview_stats: OverviewStats
+    activity_heatmap: List[ActivityDay]
+    pending_queue: List[FavoriteItemBrief]
+    workshop_matrix: List[WorkshopMatrixItem]
+    recent_outputs: List[Result]
+    trending_keywords: List[TrendingKeyword]

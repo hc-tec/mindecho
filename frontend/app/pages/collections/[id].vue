@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useCollectionsStore } from '@/stores/collections'
 import { useWorkshopsStore } from '@/stores/workshops'
 import { computed, onMounted, ref } from 'vue'
@@ -10,6 +10,7 @@ import { format } from 'date-fns'
 import { Link, Tag, User, Clock, Loader2, Sparkles, AlertTriangle } from 'lucide-vue-next'
 
 const route = useRoute()
+const router = useRouter()
 const collectionsStore = useCollectionsStore()
 const workshopsStore = useWorkshopsStore()
 
@@ -36,6 +37,36 @@ const handleExecuteWorkshop = async (workshopId: string) => {
 
 const getTaskForWorkshop = (workshopId: string) => {
   return Object.values(tasks.value).find(t => t.workshop_id === workshopId && t.favorite_item_id === itemId)
+}
+
+/**
+ * 智能跳转到工作坊
+ * 根据item所属的collection查找绑定的工作坊
+ */
+const navigateToWorkshop = () => {
+  if (!item.value) return
+
+  let workshopId = 'summary-01' // 默认工作坊
+
+  // 如果item有collection信息，尝试查找绑定的工作坊
+  if (item.value.collection?.id && item.value.platform) {
+    const boundWorkshop = workshopsStore.getWorkshopByCollection(
+      item.value.collection.id,
+      item.value.platform
+    )
+
+    if (boundWorkshop) {
+      workshopId = (boundWorkshop as any).workshop_id
+    } else {
+      // 如果没有找到绑定的工作坊，使用默认工作坊
+      const defaultWorkshop = workshopsStore.getDefaultWorkshop()
+      if (defaultWorkshop) {
+        workshopId = (defaultWorkshop as any).workshop_id
+      }
+    }
+  }
+
+  router.push(`/workshops/${workshopId}?item=${item.value.id}`)
 }
 </script>
 
@@ -71,10 +102,10 @@ const getTaskForWorkshop = (workshopId: string) => {
           </div>
           
           <div class="pt-4 border-t">
-            <Button 
-              class="w-full" 
+            <Button
+              class="w-full"
               variant="outline"
-              @click="$router.push(`/workshops/summary-01?item=${item.id}`)"
+              @click="navigateToWorkshop"
             >
               <Sparkles class="w-4 h-4 mr-2" />
               在工作坊中查看

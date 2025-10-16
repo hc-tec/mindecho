@@ -185,28 +185,56 @@ class CRUDFavoriteItem(CRUDBase[models.FavoriteItem, FavoriteItemCreate, Favorit
             sort_by: str = "favorited_at",
             sort_order: str = "desc",
             tags: Optional[List[str]] = None,
+            search_query: Optional[str] = None,
     ) -> Tuple[List[models.FavoriteItem], int]:
+        """
+        获取带过滤和分页的收藏项列表
 
-        query = select(self.model)  # Base query
+        参数：
+        - skip: 跳过的记录数（用于分页）
+        - limit: 每页返回的最大记录数
+        - sort_by: 排序字段（默认 "favorited_at"）
+        - sort_order: 排序顺序（"asc" 或 "desc"）
+        - tags: 标签列表，用于筛选（AND 逻辑，必须包含所有指定标签）
+        - search_query: 搜索关键词，模糊匹配 title 和 intro 字段（不区分大小写）
 
+        返回：
+        - 收藏项列表和总数的元组
+        """
+        query = select(self.model)  # 基础查询
+
+        # 标签筛选（AND 逻辑）
         if tags:
             for tag_name in tags:
                 query = query.where(self.model.tags.any(models.Tag.name == tag_name))
 
+        # 搜索关键词筛选（模糊匹配 title 或 intro）
+        if search_query:
+            search_pattern = f"%{search_query}%"
+            query = query.where(
+                (self.model.title.ilike(search_pattern)) |
+                (self.model.intro.ilike(search_pattern))
+            )
+
+        # 计算总数（在应用分页之前）
         count_query = select(func.count()).select_from(query.order_by(None).subquery())
         total_result = await db.execute(count_query)
         total = total_result.scalar_one()
 
+        # 应用关系加载（避免 N+1 查询）
         query_with_loads = self._apply_full_load_options(query)
 
+        # 排序
         sort_column = getattr(self.model, sort_by, self.model.favorited_at)
         if sort_order == "desc":
             query_with_loads = query_with_loads.order_by(desc(sort_column))
         else:
             query_with_loads = query_with_loads.order_by(asc(sort_column))
 
+        # 分页
         query_with_loads = query_with_loads.offset(skip).limit(limit)
 
+        # 执行查询
         items_result = await db.execute(query_with_loads)
         items = items_result.scalars().unique().all()
 

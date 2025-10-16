@@ -4,9 +4,7 @@ import { Loader2, AlertCircle } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import DashboardFactoryOverview from '@/components/dashboard/FactoryOverview.vue'
 import DashboardPendingQueue from '@/components/dashboard/PendingQueue.vue'
-import DashboardWorkshopsMatrix from '@/components/dashboard/WorkshopsMatrix.vue'
 import DashboardRecentOutputs from '@/components/dashboard/RecentOutputs.vue'
-import DashboardQuickActions from '@/components/dashboard/QuickActions.vue'
 import DashboardTrendSpotting from '@/components/dashboard/TrendSpotting.vue'
 import DashboardSystemMonitoring from '@/components/dashboard/SystemMonitoring.vue'
 import { useCollectionsStore } from '@/stores/collections'
@@ -82,19 +80,20 @@ onUnmounted(() => {
     </div>
 
     <!-- Dashboard Grid -->
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      <div class="lg:col-span-2">
-        <DashboardFactoryOverview />
-      </div>
-      <DashboardPendingQueue />
-      <DashboardSystemMonitoring />
-      <DashboardWorkshopsMatrix />
-      <div class="lg:col-span-2">
-        <DashboardRecentOutputs />
-      </div>
-      <div class="flex flex-col gap-6">
-        <DashboardQuickActions />
+    <div v-else class="space-y-6">
+      <!-- 第一行：数据工厂总览（含工坊矩阵） + 趋势洞察 -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-2">
+          <DashboardFactoryOverview />
+        </div>
         <DashboardTrendSpotting />
+      </div>
+
+      <!-- 第二行：系统监控 + 最近输出 + 待处理队列（紧凑三列） -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <DashboardSystemMonitoring />
+        <DashboardRecentOutputs />
+        <DashboardPendingQueue />
       </div>
     </div>
   </div>

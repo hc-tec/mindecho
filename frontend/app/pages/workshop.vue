@@ -8,14 +8,37 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import WorkshopConfigForm from '@/components/workshops/WorkshopConfigForm.vue'
 import { useRouter } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
-import { Image as ImageIcon, Sparkles, Search, Filter, Activity, FlaskConical, Swords, BookOpen, MoreVertical } from 'lucide-vue-next'
+import { Image as ImageIcon, Sparkles, Search, Filter, Activity, FlaskConical, Swords, BookOpen, MoreVertical, Video, BookMarked } from 'lucide-vue-next'
 import { Switch } from '@/components/ui/switch'
+import { api } from '@/lib/api'
 
 const store = useWorkshopsStore()
 const router = useRouter()
 
-onMounted(() => {  
+interface CollectionItem {
+  id: number
+  platform_collection_id: string
+  title: string
+  platform: 'bilibili' | 'xiaohongshu'
+}
+
+const actualCollections = ref<Array<CollectionItem>>([])
+
+const fetchActualCollections = async () => {
+  try {
+    const response = await api.get<{
+      total: number;
+      items: CollectionItem[]
+    }>('/sync/collections')
+    actualCollections.value = response.items
+  } catch (error) {
+    console.error('Failed to fetch collections:', error)
+  }
+}
+
+onMounted(() => {
   store.fetchWorkshops()
+  fetchActualCollections()
 })
 
 const workshops = computed(() => store.workshops)
@@ -79,6 +102,30 @@ const handleDelete = async (wk: Workshop) => {
 
 const goToWorkshop = (workshopSlug: string) => {
   router.push(`/workshops/${workshopSlug}`)
+}
+
+// Get collection names for a binding
+const getBindingCollectionNames = (binding: any): string[] => {
+  if (!binding || !binding.collection_ids || binding.collection_ids.length === 0) {
+    return []
+  }
+  return binding.collection_ids
+    .map((id: number) => actualCollections.value.find(c => c.id === id)?.title)
+    .filter((title: string | undefined) => title !== undefined)
+}
+
+// Platform configurations (icon, color)
+const platformConfig: Record<string, { icon: any; colorClass: string; bgClass: string }> = {
+  bilibili: {
+    icon: Video,
+    colorClass: 'text-[#00A1D6]',
+    bgClass: 'bg-[#00A1D6]/10'
+  },
+  xiaohongshu: {
+    icon: BookMarked,
+    colorClass: 'text-[#FF2442]',
+    bgClass: 'bg-[#FF2442]/10'
+  }
 }
 </script>
 
@@ -168,7 +215,39 @@ const goToWorkshop = (workshopSlug: string) => {
                 </div>
               </div>
             </CardHeader>
-            <CardContent class="flex-1 flex items-end py-4">
+
+            <!-- Platform Bindings Summary -->
+            <CardContent v-if="(workshop as any).executor_config?.platform_bindings?.length > 0" class="pt-0 pb-3">
+              <div class="space-y-2">
+                <div class="text-xs text-muted-foreground font-medium mb-1.5">绑定收藏夹:</div>
+                <div
+                  v-for="binding in (workshop as any).executor_config.platform_bindings"
+                  :key="binding.platform"
+                  class="flex items-start gap-2"
+                >
+                  <component :is="platformConfig[binding.platform]?.icon || Video" :class="['h-3.5 w-3.5 mt-0.5 shrink-0', platformConfig[binding.platform]?.colorClass]" />
+                  <div class="flex-1 min-w-0">
+                    <div class="flex flex-wrap gap-1.5 items-center">
+                      <template v-if="getBindingCollectionNames(binding).length > 0">
+                        <span
+                          v-for="(collectionName, idx) in getBindingCollectionNames(binding)"
+                          :key="idx"
+                          class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium"
+                          :class="[platformConfig[binding.platform]?.bgClass, platformConfig[binding.platform]?.colorClass]"
+                        >
+                          {{ collectionName }}
+                        </span>
+                      </template>
+                      <span v-else class="text-xs text-muted-foreground italic">
+                        未找到收藏夹
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+
+            <CardContent :class="[(workshop as any).executor_config?.platform_bindings?.length > 0 ? 'pt-0' : '', 'flex-1 flex items-end py-4']">
               <div class="w-full grid grid-cols-2 gap-2">
                 <Button as-child variant="secondary" class="transition-colors">
                   <NuxtLink @click="openEdit(workshop)">配置</NuxtLink>

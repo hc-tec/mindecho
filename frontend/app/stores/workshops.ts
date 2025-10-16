@@ -225,5 +225,47 @@ export const useWorkshopsStore = defineStore('workshops', {
       return this.workshops.find((w: any) => w.workshop_id === slug)
     },
 
+    /**
+     * 根据收藏项的collection查找绑定了该collection的工作坊
+     *
+     * @param collectionId - 收藏夹ID
+     * @param platform - 平台名称 (bilibili, xiaohongshu, etc.)
+     * @returns 第一个绑定了该collection的工作坊，如果没有则返回null
+     */
+    getWorkshopByCollection(collectionId: number, platform: string): Workshop | null {
+      if (!collectionId || !platform) return null
+
+      for (const workshop of this.workshops) {
+        const executorConfig = (workshop as any).executor_config
+        if (!executorConfig) continue
+
+        const platformBindings = executorConfig.platform_bindings
+        if (!Array.isArray(platformBindings)) continue
+
+        // 查找是否有绑定该平台和collection的配置
+        const binding = platformBindings.find((b: any) =>
+          b.platform === platform &&
+          Array.isArray(b.collection_ids) &&
+          b.collection_ids.includes(collectionId)
+        )
+
+        if (binding) {
+          return workshop
+        }
+      }
+
+      return null
+    },
+
+    /**
+     * 获取默认工作坊（用于没有绑定时的fallback）
+     * 优先返回 summary-01，如果不存在则返回第一个工作坊
+     */
+    getDefaultWorkshop(): Workshop | null {
+      const summaryWorkshop = this.workshops.find((w: any) => w.workshop_id === 'summary-01')
+      if (summaryWorkshop) return summaryWorkshop
+      return this.workshops[0] || null
+    },
+
   },
 })

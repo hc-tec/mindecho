@@ -19,8 +19,6 @@ interface CollectionsState {
   // Filters and pagination
   currentPage: number
   itemsPerPage: number
-  sortBy: string
-  sortOrder: 'asc' | 'desc'
   selectedTags: string[]
   searchQuery: string
 }
@@ -40,8 +38,6 @@ export const useCollectionsStore = defineStore('collections', {
 
     currentPage: 1,
     itemsPerPage: 10,
-    sortBy: 'favorited_at',
-    sortOrder: 'desc',
     selectedTags: [],
     searchQuery: '',
   }),
@@ -50,17 +46,17 @@ export const useCollectionsStore = defineStore('collections', {
     async fetchCollections() {
       this.loading = true
       this.error = null
-      
+
       try {
         const params = {
           page: this.currentPage,
           size: this.itemsPerPage,
-          sort_by: this.sortBy,
-          sort_order: this.sortOrder,
+          sort_by: 'favorited_at',  // 固定按收藏时间排序
+          sort_order: 'desc',        // 固定倒序（最新在前）
           tags: this.selectedTags.join(','),
           q: this.searchQuery,
         }
-        
+
         const response = await api.get<PaginatedResponse<FavoriteItem>>('/collections', params)
         this.items = response.items.map((it) => ({
           ...it,
@@ -141,18 +137,7 @@ export const useCollectionsStore = defineStore('collections', {
       this.currentPage = page
       this.fetchCollections()
     },
-    
-    setSort(sortBy: string) {
-      if (this.sortBy === sortBy) {
-        this.sortOrder = this.sortOrder === 'asc' ? 'desc' : 'asc'
-      } else {
-        this.sortBy = sortBy
-        this.sortOrder = 'desc'
-      }
-      this.currentPage = 1
-      this.fetchCollections()
-    },
-    
+
     toggleTag(tagName: string) {
       const index = this.selectedTags.indexOf(tagName)
       if (index > -1) {
@@ -172,6 +157,14 @@ export const useCollectionsStore = defineStore('collections', {
 
     // A debounced version would be better in a real app
     search() {
+      this.currentPage = 1
+      this.fetchCollections()
+    },
+
+    // 重置所有筛选条件
+    resetFilters() {
+      this.searchQuery = ''
+      this.selectedTags = []
       this.currentPage = 1
       this.fetchCollections()
     },

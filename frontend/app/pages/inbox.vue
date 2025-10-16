@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useCollectionsStore } from '@/stores/collections'
+import { useWorkshopsStore } from '@/stores/workshops'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -10,13 +12,20 @@ import { Badge } from '@/components/ui/badge'
 import { BilibiliImage } from '@/components/ui/bilibili-image'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+import type { FavoriteItem } from '@/types/api'
 
+const router = useRouter()
 const collectionsStore = useCollectionsStore()
+const workshopsStore = useWorkshopsStore()
 const inboxItems = computed(() => collectionsStore.inboxItems)
 const isLoading = computed(() => collectionsStore.loading)
 
-onMounted(() => {
-  collectionsStore.fetchInbox()
+onMounted(async () => {
+  // 先加载工作坊列表（用于智能路由）
+  if (workshopsStore.workshops.length === 0) {
+    await workshopsStore.fetchWorkshops()
+  }
+  await collectionsStore.fetchInbox()
 })
 
 const selectedItems = ref<number[]>([])
@@ -45,6 +54,34 @@ const toggleItem = (itemId: number) => {
   } else {
     selectedItems.value = [...selectedItems.value, itemId]
   }
+}
+
+/**
+ * 智能跳转到工作坊
+ * 根据item所属的collection查找绑定的工作坊
+ */
+const navigateToWorkshop = (item: FavoriteItem) => {
+  let workshopId = 'summary-01' // 默认工作坊
+
+  // 如果item有collection信息，尝试查找绑定的工作坊
+  if (item.collection?.id && item.platform) {
+    const boundWorkshop = workshopsStore.getWorkshopByCollection(
+      item.collection.id,
+      item.platform
+    )
+
+    if (boundWorkshop) {
+      workshopId = (boundWorkshop as any).workshop_id
+    } else {
+      // 如果没有找到绑定的工作坊，使用默认工作坊
+      const defaultWorkshop = workshopsStore.getDefaultWorkshop()
+      if (defaultWorkshop) {
+        workshopId = (defaultWorkshop as any).workshop_id
+      }
+    }
+  }
+
+  router.push(`/workshops/${workshopId}?item=${item.id}`)
 }
 </script>
 
@@ -92,13 +129,13 @@ const toggleItem = (itemId: number) => {
                     @click.prevent.stop
                   />
                 </div>
-                <BilibiliImage 
-                  :src="item.cover_url" 
-                  :alt="item.title" 
+                <BilibiliImage
+                  :src="item.cover_url"
+                  :alt="item.title"
                   img-class="w-24 h-16 object-cover rounded cursor-pointer shrink-0"
-                  @click="$router.push(`/workshops/summary-01?item=${item.id}`)"
+                  @click="navigateToWorkshop(item)"
                 />
-                <div class="flex-1 min-w-0 cursor-pointer" @click="$router.push(`/workshops/summary-01?item=${item.id}`)">
+                <div class="flex-1 min-w-0 cursor-pointer" @click="navigateToWorkshop(item)">
                   <div class="flex items-start justify-between gap-2">
                     <div class="flex-1 min-w-0">
                       <p class="text-sm font-medium truncate group-hover:text-primary transition-colors">{{ item.title }}</p>

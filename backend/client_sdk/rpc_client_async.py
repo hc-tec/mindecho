@@ -334,7 +334,7 @@ class EAIRPCClient:
         async with self._rpc_call("xiaohongshu_details", params, timeout_sec=rpc_timeout_sec) as result:
             return result
 
-    async def chat_with_yuanbao(self, ask_question: str, conversation_id: str, rpc_timeout_sec=60,
+    async def chat_with_yuanbao(self, ask_question: str, conversation_id: Optional[str]=None, rpc_timeout_sec=60,
                                 task_params: TaskParams = TaskParams(),
                                 service_params: ServiceParams = ServiceParams()):
         ask_question = ask_question.replace('\n', '').replace('\r', '')

@@ -79,3 +79,27 @@ async def clear_completed_tasks(db: AsyncSession = Depends(deps.get_db)):
     await db.execute(query)
     await db.commit()
     return
+
+@router.post("/cleanup-stale")
+async def cleanup_stale_tasks(db: AsyncSession = Depends(deps.get_db)):
+    """
+    Mark IN_PROGRESS tasks older than 1 hour as FAILURE.
+    This prevents tasks from getting stuck indefinitely.
+    """
+    from datetime import datetime, timedelta
+
+    stale_cutoff = datetime.utcnow() - timedelta(hours=1)
+    stale_tasks_query = select(TaskModel).where(
+        TaskModel.status == TaskStatus.IN_PROGRESS,
+        TaskModel.created_at < stale_cutoff
+    )
+    stale_tasks_result = await db.execute(stale_tasks_query)
+    stale_tasks = stale_tasks_result.scalars().all()
+
+    count = len(stale_tasks)
+    for task in stale_tasks:
+        task.status = TaskStatus.FAILURE
+        db.add(task)
+
+    await db.commit()
+    return {"cleaned": count, "message": f"Marked {count} stale tasks as FAILURE"}

@@ -84,6 +84,26 @@ async def startup_event():
     from app.services.notifications.notification_service import notification_service
     notification_service.initialize()
 
+    # Clean up stale IN_PROGRESS tasks (older than 1 hour)
+    from datetime import datetime, timedelta
+    from app.db.models import Task, TaskStatus
+    async with AsyncSessionLocal() as db:
+        stale_cutoff = datetime.utcnow() - timedelta(hours=1)
+        stale_tasks_query = select(Task).where(
+            Task.status == TaskStatus.IN_PROGRESS,
+            Task.created_at < stale_cutoff
+        )
+        stale_tasks_result = await db.execute(stale_tasks_query)
+        stale_tasks = stale_tasks_result.scalars().all()
+        if stale_tasks:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Found {len(stale_tasks)} stale IN_PROGRESS tasks, marking as FAILURE")
+            for task in stale_tasks:
+                task.status = TaskStatus.FAILURE
+                db.add(task)
+            await db.commit()
+
     # Register stream handler and start enabled listeners
     stream_manager.register_event_handler(handle_stream_event)
     await start_enabled_workshop_streams()

@@ -27,23 +27,40 @@ async def read_collections(
     sort_by: str = Query("favorited_at", description="Sort by field"),
     sort_order: str = Query("desc", description="Sort order (asc or desc)"),
     tags: Optional[str] = Query(None, description="Comma-separated tags to filter by"),
+    q: Optional[str] = Query(None, description="Search query (matches title and intro)"),
 ):
     """
-    Retrieve a paginated list of collections (favorite items) with sorting and filtering.
+    获取收藏项的分页列表，支持排序、筛选和搜索
+
+    参数：
+    - page: 页码（从1开始）
+    - size: 每页大小（最大100）
+    - sort_by: 排序字段（如 "favorited_at", "title"）
+    - sort_order: 排序顺序（"asc" 或 "desc"）
+    - tags: 标签筛选（逗号分隔，例如 "深度学习,产品设计"）
+    - q: 搜索关键词（模糊匹配标题和简介）
+
+    返回：
+    - total: 符合条件的总数
+    - items: 当前页的收藏项列表
     """
-    tags_list = tags.split(',') if tags else None
+    # 处理标签参数（逗号分隔转为列表）
+    tags_list = [tag.strip() for tag in tags.split(',') if tag.strip()] if tags else None
+
+    # 计算跳过的记录数
     skip = (page - 1) * size
-    
-    # The actual filtering and sorting logic will be implemented in the CRUD layer next
+
+    # 调用 CRUD 层执行查询
     items, total = await crud_favorites.favorite_item.get_multi_paginated_with_filters(
         db,
         skip=skip,
         limit=size,
         sort_by=sort_by,
         sort_order=sort_order,
-        tags=tags_list
+        tags=tags_list,
+        search_query=q
     )
-    
+
     return {"total": total, "items": items}
 
 @router.post("/delete", status_code=status.HTTP_200_OK)
