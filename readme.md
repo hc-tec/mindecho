@@ -375,29 +375,8 @@ else:
 | `/api/v1/settings` | GET/PUT | 管理应用设置 |
 
 ### 环境变量
+见`backend/app/core/config.py`，其中的cookit id相关的内容都需要修改
 
-创建 `backend/.env`：
-
-```bash
-# 数据库
-DATABASE_URL=sqlite+aiosqlite:///./mindecho.db
-
-# 外部RPC服务
-EAI_BASE_URL=http://127.0.0.1:8001
-EAI_API_KEY=your_api_key_here
-
-# LLM配置
-YUANBAO_CONVERSATION_ID=your_conversation_id
-YUANBAO_COOKIE_IDS=["cookie_id_1", "cookie_id_2"]
-
-# 平台认证
-BILIBILI_COOKIE_IDS=["bilibili_cookie_1"]
-XIAOHONGSHU_COOKIE_IDS=["xhs_cookie_1"]
-
-# 流配置
-BILIBILI_FAVORITES_STREAM_INTERVAL=10
-XIAOHONGSHU_STREAM_INTERVAL=15
-```
 
 ---
 
