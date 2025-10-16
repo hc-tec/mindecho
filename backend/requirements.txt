@@ -5,6 +5,7 @@ pydantic-settings
 python-dotenv
 alembic
 aiosqlite
+markdown>=3.5.0  # For Markdown to HTML conversion in email notifications
 # Testing
 pytest
 pytest-asyncio

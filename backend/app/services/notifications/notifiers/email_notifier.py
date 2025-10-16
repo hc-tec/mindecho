@@ -10,6 +10,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 from typing import Optional
+import markdown
 
 from app.core.config import settings
 from app.core.logging_config import get_logger
@@ -165,23 +166,38 @@ class EmailNotifier:
         return "\n".join(lines)
 
     def _build_html(self, context: NotificationContext) -> str:
-        """Build HTML email content."""
+        """Build HTML email content with proper Markdown rendering."""
         # Use pre-rendered HTML if available
         if context.html_content:
             base_html = context.html_content
         else:
-            # Convert formatted text to simple HTML
+            # Convert Markdown to HTML using markdown library
             text = context.get_display_text()
-            # Simple markdown to HTML conversion (basic)
-            base_html = text.replace("\n\n", "</p><p>").replace("\n", "<br>")
-            base_html = f"<p>{base_html}</p>"
 
-        # Wrap in email template
+            # Configure markdown with useful extensions
+            base_html = markdown.markdown(
+                text,
+                extensions=[
+                    'extra',        # Tables, fenced code blocks, etc.
+                    'nl2br',        # Newlines become <br>
+                    'sane_lists',   # Better list handling
+                    'codehilite',   # Code syntax highlighting
+                ],
+                extension_configs={
+                    'codehilite': {
+                        'css_class': 'highlight',
+                        'noclasses': True,  # Use inline styles
+                    }
+                }
+            )
+
+        # Wrap in email template with comprehensive CSS
         html = f"""
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -190,9 +206,10 @@ class EmailNotifier:
             max-width: 600px;
             margin: 0 auto;
             padding: 20px;
+            background-color: #f5f5f5;
         }}
         .header {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: white;
             color: white;
             padding: 30px;
             border-radius: 10px 10px 0 0;
@@ -206,11 +223,103 @@ class EmailNotifier:
             background: #f7f7f7;
             padding: 15px;
             border-left: 4px solid #667eea;
-            margin: 20px 0;
+            margin: 0;
         }}
         .content {{
             padding: 20px;
             background: white;
+        }}
+        .content h1 {{
+            font-size: 28px;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            color: #2c3e50;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }}
+        .content h2 {{
+            font-size: 24px;
+            margin-top: 25px;
+            margin-bottom: 12px;
+            color: #34495e;
+        }}
+        .content h3 {{
+            font-size: 20px;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            color: #4a5568;
+        }}
+        .content p {{
+            margin: 10px 0;
+        }}
+        .content strong {{
+            font-weight: 600;
+            color: #2c3e50;
+        }}
+        .content em {{
+            font-style: italic;
+            color: #555;
+        }}
+        .content code {{
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 90%;
+            color: #d73a49;
+        }}
+        .content pre {{
+            background-color: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            padding: 16px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }}
+        .content pre code {{
+            background-color: transparent;
+            padding: 0;
+            color: #24292e;
+        }}
+        .content ul, .content ol {{
+            margin: 15px 0;
+            padding-left: 30px;
+        }}
+        .content li {{
+            margin: 5px 0;
+        }}
+        .content blockquote {{
+            border-left: 4px solid #dfe2e5;
+            padding-left: 16px;
+            margin: 15px 0;
+            color: #6a737d;
+            font-style: italic;
+        }}
+        .content table {{
+            border-collapse: collapse;
+            width: 100%;
+            margin: 15px 0;
+        }}
+        .content th, .content td {{
+            border: 1px solid #dfe2e5;
+            padding: 8px 12px;
+            text-align: left;
+        }}
+        .content th {{
+            background-color: #f6f8fa;
+            font-weight: 600;
+        }}
+        .content a {{
+            color: #667eea;
+            text-decoration: none;
+        }}
+        .content a:hover {{
+            text-decoration: underline;
+        }}
+        .content hr {{
+            border: none;
+            border-top: 2px solid #e1e4e8;
+            margin: 20px 0;
         }}
         .footer {{
             text-align: center;
@@ -218,12 +327,23 @@ class EmailNotifier:
             color: #666;
             font-size: 12px;
             border-top: 1px solid #eee;
+            background: white;
+            border-radius: 0 0 10px 10px;
+        }}
+        .footer a {{
+            color: #667eea;
+            text-decoration: none;
         }}
         img {{
             max-width: 100%;
             height: auto;
             border-radius: 8px;
             margin: 20px 0;
+        }}
+        /* Syntax highlighting */
+        .highlight {{
+            background: #f6f8fa;
+            border-radius: 6px;
         }}
     </style>
 </head>
@@ -245,7 +365,7 @@ class EmailNotifier:
     {"<img src='cid:result_image' alt='Result Visualization'>" if context.rendered_image_data else ""}
 
     <div class="footer">
-        由 MindEcho 自动生成 | <a href="https://github.com/anthropics/mindecho">了解更多</a>
+        由 MindEcho 自动生成 | <a href="https://github.com/hc-tec/mindecho">了解更多</a>
     </div>
 </body>
 </html>

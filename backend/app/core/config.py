@@ -30,12 +30,12 @@ class Settings(BaseSettings):
     XIAOHONGSHU_DETAILS_MAX_RETRY_ATTEMPTS: int = 5  # Max retry attempts per note
 
     # SMTP Email configuration (for email notifications)
-    SMTP_HOST: str = "smtp.qq.com"  # SMTP server host
+    SMTP_HOST: str = "smtp.gmail.com"  # SMTP server host
     SMTP_PORT: int = 587  # SMTP server port (587 for TLS, 465 for SSL)
-    SMTP_USER: str = "2598772546@qq.com"  # SMTP username (usually your email)
-    SMTP_PASSWORD: str = "decrfxjrfzyieaig"  # SMTP password or app-specific password
-    EMAIL_FROM: str = "2598772546@qq.com"  # Sender email address (defaults to SMTP_USER)
-    EMAIL_TO: str = "jitsun@163.com"  # Recipient email address
+    SMTP_USER: str = ""  # SMTP username (usually your email)
+    SMTP_PASSWORD: str = ""  # SMTP password or app-specific password
+    EMAIL_FROM: str = ""  # Sender email address (defaults to SMTP_USER)
+    EMAIL_TO: str = ""  # Recipient email address
 
     class Config:
         env_file = ".env"

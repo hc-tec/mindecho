@@ -237,6 +237,7 @@ async def execute_llm_chat(ctx: ExecutionContext, *, prompt_template: str, model
         result = await client.chat_with_yuanbao(
             ask_question=prompt,
             conversation_id=settings.YUANBAO_CONVERSATION_ID,
+            rpc_timeout_sec=300,
             task_params=TaskParams(
                 cookie_ids=settings.YUANBAO_COOKIE_IDS,
                 close_page_when_task_finished=True,
