@@ -210,7 +210,7 @@ class EmailNotifier:
         }}
         .header {{
             background: white;
-            color: white;
+            color: black;
             padding: 30px;
             border-radius: 10px 10px 0 0;
             text-align: center;
