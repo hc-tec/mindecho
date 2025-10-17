@@ -6,7 +6,9 @@ python-dotenv
 alembic
 aiosqlite
 markdown>=3.5.0  # For Markdown to HTML conversion in email notifications
+jsonschema>=4.0.0  # For workshop configuration validation
 # Testing
 pytest
 pytest-asyncio
 httpx
+aiohttp

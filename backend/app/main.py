@@ -14,9 +14,100 @@ from app.core.logging_config import LogConfig
 from sqlalchemy import select
 from app.db.models import AppSetting, Workshop as WorkshopModel, Collection
 from app.core.websocket_manager import manager as websocket_manager
+import json
+from pathlib import Path
 
 # Apply logging configuration at the earliest point
 LogConfig.setup_logging()
+
+
+def validate_workshop_config(config: dict) -> bool:
+    """
+    Validate workshop configuration against JSON schema.
+    Returns True if valid, False otherwise.
+    """
+    try:
+        import jsonschema
+        schema_path = Path(__file__).parent.parent / "config" / "workshops_schema.json"
+
+        if schema_path.exists():
+            with open(schema_path, 'r', encoding='utf-8') as f:
+                schema = json.load(f)
+            jsonschema.validate(instance=config, schema=schema)
+            return True
+        else:
+            # If schema file doesn't exist, skip validation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning("Workshop schema file not found, skipping validation")
+            return True
+    except ImportError:
+        # jsonschema not installed, skip validation
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("jsonschema library not installed, skipping workshop config validation")
+        return True
+    except jsonschema.ValidationError as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Workshop configuration validation failed: {e.message}")
+        return False
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error during workshop config validation: {e}", exc_info=True)
+        return False
+
+
+def load_workshop_config():
+    """Load workshop configuration from JSON file."""
+    config_path = Path(__file__).parent.parent / "config" / "workshops.json"
+
+    if not config_path.exists():
+        # Fallback to hardcoded defaults if config file doesn't exist
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Workshop config file not found at {config_path}, using hardcoded defaults")
+        return [
+            ("summary-01", "精华摘要", "请对以下内容进行精简摘要，保留要点与行动项。\n\n{source}", None, "llm_chat"),
+            ("snapshot-insight", "快照洞察", "请输出该内容的关键洞察与三个重点问题。\n\n{source}", None, "llm_chat"),
+            ("information-alchemy", "信息炼金术", "请将材料转化为结构化知识要点（主题-要点-例证）。\n\n{source}", None, "llm_chat"),
+            ("point-counterpoint", "观点对撞", "从正反两方进行论证并得出结论。\n\n{source}", None, "llm_chat"),
+            ("learning-tasks", "学习任务", "请为学习该材料生成分层学习任务与测验题。\n\n{source}", None, "llm_chat"),
+        ]
+
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+
+        # Validate configuration
+        if not validate_workshop_config(config):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error("Workshop configuration validation failed, skipping workshop initialization")
+            return []
+
+        # Convert JSON format to tuple format for database insertion
+        workshops = []
+        for ws in config.get("workshops", []):
+            if not ws.get("enabled", True):
+                continue  # Skip disabled workshops
+
+            workshops.append((
+                ws["workshop_id"],
+                ws["name"],
+                ws["default_prompt"],
+                ws.get("default_model"),
+                ws["executor_type"]
+            ))
+
+        return workshops
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to load workshop config: {e}", exc_info=True)
+        # Return empty list on error - don't seed any workshops
+        return []
 
 
 app = FastAPI(
@@ -62,13 +153,8 @@ async def startup_event():
     async with AsyncSessionLocal() as db:
         rows = (await db.execute(select(WorkshopModel))).scalars().all()
         if not rows:
-            defaults = [
-                ("summary-01", "精华摘要", "请对以下内容进行精简摘要，保留要点与行动项。\n\n{source}", None, "llm_chat"),
-                ("snapshot-insight", "快照洞察", "请输出该内容的关键洞察与三个重点问题。\n\n{source}", None, "llm_chat"),
-                ("information-alchemy", "信息炼金术", "请将材料转化为结构化知识要点（主题-要点-例证）。\n\n{source}", None, "llm_chat"),
-                ("point-counterpoint", "观点对撞", "从正反两方进行论证并得出结论。\n\n{source}", None, "llm_chat"),
-                ("learning-tasks", "学习任务", "请为学习该材料生成分层学习任务与测验题。\n\n{source}", None, "llm_chat"),
-            ]
+            # Load workshop configuration from JSON file
+            defaults = load_workshop_config()
             for wid, name, dp, dm, et in defaults:
                 db.add(WorkshopModel(workshop_id=wid, name=name, default_prompt=dp, default_model=dm, executor_type=et))
             await db.commit()

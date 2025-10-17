@@ -10,6 +10,7 @@ from typing import List, Optional, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete as sql_delete
 
+from app.core.config import settings
 from app.crud import crud_favorites
 from app.db import models
 from app.schemas import unified as schemas
@@ -440,7 +441,7 @@ async def sync_bilibili_collections_list(db: AsyncSession, *, max_collections: O
         await client.start()
         service_params = ServiceParams(need_raw_data=True, max_items=max_collections)
         results = await client.get_collection_list_from_bilibili(
-            task_params=TaskParams(cookie_ids=["23d87982-a801-4d12-ae93-50a85e336e98"], close_page_when_task_finished=True),
+            task_params=TaskParams(cookie_ids=settings.BILIBILI_COOKIE_IDS, close_page_when_task_finished=settings.BILIBILI_CLOSE_PAGE_WHEN_TASK_FINISHED),
             service_params=service_params,
         )
         # await client.stop()
@@ -478,7 +479,7 @@ async def sync_videos_in_bilibili_collection(db: AsyncSession, *, platform_colle
     if not db_collection.author:
         raise ValueError(f"Collection {platform_collection_id} is missing author information.")
 
-    client = EAIRPCClient(base_url="http://127.0.0.1:8008", api_key="testkey")
+    client = EAIRPCClient(base_url=settings.EAI_BASE_URL, api_key=settings.EAI_API_KEY)
     videos_synced = []
     try:
         await client.start()
@@ -486,8 +487,8 @@ async def sync_videos_in_bilibili_collection(db: AsyncSession, *, platform_colle
         results = await client.get_collection_list_videos_from_bilibili(
             collection_id=platform_collection_id,
             user_id=db_collection.author.platform_user_id,
-            task_params=TaskParams(cookie_ids=["23d87982-a801-4d12-ae93-50a85e336e98"],
-                                   close_page_when_task_finished=True),
+            task_params=TaskParams(cookie_ids=settings.BILIBILI_COOKIE_IDS,
+                                   close_page_when_task_finished=settings.BILIBILI_CLOSE_PAGE_WHEN_TASK_FINISHED),
             service_params=service_params, rpc_timeout_sec=120
         )
         if not results.get("success"):
@@ -538,7 +539,7 @@ async def sync_bilibili_videos_details(db: AsyncSession, *, bvids: List[str]) ->
     """
     API Service: Fetches and syncs detailed info for a list of bvids.
     """
-    client = EAIRPCClient(base_url="http://127.0.0.1:8008", api_key="testkey")
+    client = EAIRPCClient(base_url=settings.EAI_BASE_URL, api_key=settings.EAI_API_KEY)
     videos_updated = []
     try:
         await client.start()
@@ -550,8 +551,8 @@ async def sync_bilibili_videos_details(db: AsyncSession, *, bvids: List[str]) ->
 
             results = await client.get_video_details_from_bilibili(
                 bvid=bvid,
-                task_params=TaskParams(cookie_ids=["23d87982-a801-4d12-ae93-50a85e336e98"],
-                                       close_page_when_task_finished=True),
+                task_params=TaskParams(cookie_ids=settings.BILIBILI_COOKIE_IDS,
+                                       close_page_when_task_finished=settings.BILIBILI_CLOSE_PAGE_WHEN_TASK_FINISHED),
                 service_params=ServiceParams(need_raw_data=True),
             )
             if not results.get("success"):

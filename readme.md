@@ -374,9 +374,136 @@ else:
 | `/api/v1/streams` | GET | 列出活动监控流 |
 | `/api/v1/settings` | GET/PUT | 管理应用设置 |
 
-### 环境变量
-见`backend/app/core/config.py`，其中的cookit id相关的内容都需要修改
+### 环境变量配置
 
+MindEcho 支持通过 `.env` 文件配置所有环境变量，避免在代码中硬编码敏感信息。
+
+#### 配置步骤
+
+1. **创建 .env 文件**
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+2. **编辑 .env 文件**
+
+```bash
+# 使用你喜欢的编辑器打开 .env
+vim .env  # 或 nano .env、code .env
+```
+
+#### 配置项说明
+
+##### 数据库配置
+```bash
+DATABASE_URL=sqlite+aiosqlite:///./mindecho.db
+```
+
+##### EAI RPC 服务配置
+用于 LLM 调用和网页抓取（需要先配置 [everything-as-an-interface](https://github.com/hc-tec/everything-as-an-interface)）
+```bash
+EAI_BASE_URL=http://127.0.0.1:8008
+EAI_API_KEY=your_api_key_here
+```
+
+##### Bilibili 配置
+```bash
+# Cookie ID（从浏览器中获取）
+BILIBILI_COOKIE_IDS=["your-cookie-id-1", "your-cookie-id-2"]
+
+# 插件和流配置
+BILIBILI_FAVORITES_PLUGIN_ID=bilibili_collection_videos
+BILIBILI_FAVORITES_STREAM_GROUP=bilibili_collection_videos-updates
+BILIBILI_STREAM_INTERVAL=120
+
+# 指纹字段（用于去重）
+BILIBILI_FINGERPRINT_FIELDS=["id", "bvid"]
+
+# 任务完成后关闭页面
+BILIBILI_CLOSE_PAGE_WHEN_TASK_FINISHED=true
+
+# 详情获取重试次数
+BILIBILI_DETAILS_MAX_RETRY_ATTEMPTS=5
+```
+
+##### 小红书配置
+```bash
+# Cookie ID（从浏览器中获取）
+XIAOHONGSHU_COOKIE_IDS=["your-xiaohongshu-cookie-id"]
+
+# 插件和流配置
+XIAOHONGSHU_FAVORITES_PLUGIN_ID=xiaohongshu_favorites_brief
+XIAOHONGSHU_STREAM_INTERVAL=120
+XIAOHONGSHU_FINGERPRINT_FIELDS=["id"]
+```
+
+##### 流处理配置
+```bash
+# 首次同步阈值（超过此数量视为首次同步）
+FIRST_SYNC_THRESHOLD=50
+
+# 详情获取重试配置
+XIAOHONGSHU_DETAILS_RETRY_DELAY_MINUTES=5
+XIAOHONGSHU_DETAILS_MAX_RETRY_ATTEMPTS=5
+```
+
+##### SMTP 邮件通知配置（可选）
+如果需要邮件通知功能，配置以下选项：
+
+**Gmail 示例：**
+```bash
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your_email@gmail.com
+SMTP_PASSWORD=your_app_specific_password
+EMAIL_FROM=your_email@gmail.com
+EMAIL_TO=recipient@example.com
+```
+
+**QQ 邮箱示例：**
+```bash
+SMTP_HOST=smtp.qq.com
+SMTP_PORT=587
+SMTP_USER=your_qq_number@qq.com
+SMTP_PASSWORD=your_authorization_code
+EMAIL_FROM=your_qq_number@qq.com
+EMAIL_TO=recipient@example.com
+```
+
+**163 邮箱示例：**
+```bash
+SMTP_HOST=smtp.163.com
+SMTP_PORT=465
+SMTP_USER=your_email@163.com
+SMTP_PASSWORD=your_authorization_code
+EMAIL_FROM=your_email@163.com
+EMAIL_TO=recipient@example.com
+```
+
+##### 元宝 AI 配置
+```bash
+YUANBAO_COOKIE_IDS=["your-yuanbao-cookie-id"]
+YUANBAO_CONVERSATION_ID=your-conversation-id
+```
+
+#### 重要提示
+
+⚠️ **安全注意事项：**
+- `.env` 文件包含敏感信息，**永远不要提交到 Git**
+- `.gitignore` 已配置忽略 `.env` 文件
+- 只提交 `.env.example` 作为模板
+
+⚠️ **Cookie 获取方法：**
+1. 打开浏览器开发者工具（F12）
+2. ���录目标平台（Bilibili/小红书等）
+3. 在 Application/存储 → Cookies 中查找相关 Cookie
+4. 复制 Cookie 值到配置文件
+
+详细配置指南请参考：
+- `backend/.env.example` - 完整配置模板
+- `backend/SMTP_CONFIG_GUIDE.md` - SMTP 邮件配置详细指南
 
 ---
 

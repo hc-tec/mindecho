@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Workshop Configuration Schema",
+  "description": "Schema for validating workshop configuration files",
+  "type": "object",
+  "required": ["version", "workshops"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Configuration file version",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of this configuration"
+    },
+    "workshops": {
+      "type": "array",
+      "description": "Array of workshop configurations",
+      "items": {
+        "$ref": "#/definitions/workshop"
+      }
+    }
+  },
+  "definitions": {
+    "workshop": {
+      "type": "object",
+      "required": ["workshop_id", "name", "default_prompt", "executor_type"],
+      "properties": {
+        "workshop_id": {
+          "type": "string",
+          "description": "Unique identifier for the workshop",
+          "pattern": "^[a-z0-9-]+$",
+          "minLength": 3,
+          "maxLength": 50
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the workshop",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief description of what the workshop does"
+        },
+        "default_prompt": {
+          "type": "string",
+          "description": "Default prompt template for the workshop. Use {source} placeholder for content.",
+          "minLength": 10
+        },
+        "default_model": {
+          "type": ["string", "null"],
+          "description": "Default AI model to use (null means use system default)"
+        },
+        "executor_type": {
+          "type": "string",
+          "description": "Type of executor to use for processing",
+          "enum": ["llm_chat"]
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this workshop should be loaded on startup",
+          "default": true
+        },
+        "tags": {
+          "type": "array",
+          "description": "Tags for categorizing the workshop",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
